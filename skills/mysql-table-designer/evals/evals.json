@@ -1,0 +1,44 @@
+{
+  "skill_name": "mysql-table-designer",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "设计一个商品表，需要商品名称、价格、库存数量、分类",
+      "expected_output": "输出一张 products 表，包含 id（主键）、name、price（DECIMAL类型）、stock、category_id 等字段，带注释和索引，有 created_at/updated_at",
+      "files": [],
+      "assertions": [
+        {"id": "1.1", "description": "主键为 BIGINT UNSIGNED AUTO_INCREMENT", "type": "script", "script": "grep -qi 'BIGINT.*UNSIGNED.*AUTO_INCREMENT' output.sql"},
+        {"id": "1.2", "description": "价格字段使用 DECIMAL 而非 FLOAT/DOUBLE", "type": "script", "script": "grep -qi 'DECIMAL' output.sql && ! grep -qi 'FLOAT|DOUBLE' output.sql"},
+        {"id": "1.3", "description": "每个业务字段都有 COMMENT 注释", "type": "script", "script": "grep -ci 'COMMENT' output.sql | awk -F: '{exit $NF<3}'"},
+        {"id": "1.4", "description": "表有 COMMENT 注释", "type": "script", "script": "grep -qi 'ENGINE=InnoDB.*COMMENT=' output.sql"},
+        {"id": "1.5", "description": "使用 ENGINE=InnoDB 和 CHARSET=utf8mb4", "type": "script", "script": "grep -qi 'ENGINE=InnoDB' output.sql && grep -qi 'utf8mb4' output.sql"},
+        {"id": "1.6", "description": "包含 created_at 和 updated_at 时间字段", "type": "script", "script": "grep -qi 'created_at' output.sql && grep -qi 'updated_at' output.sql"}
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "设计一个简单的订单系统数据库，包含用户、订单、订单明细三张表。订单需要记录下单用户、总金额、状态；订单明细需要记录商品、数量、单价",
+      "expected_output": "输出三张表 users/orders/order_items，订单表关联用户，明细表关联订单和商品，有外键字段、合适索引、金额用DECIMAL",
+      "files": [],
+      "assertions": [
+        {"id": "2.1", "description": "输出至少三张独立的表（users, orders, order_items）", "type": "script", "script": "test $(grep -ci 'CREATE TABLE' output.sql) -ge 3"},
+        {"id": "2.2", "description": "orders 表包含 user_id 外键字段", "type": "script", "script": "grep -qi 'user_id' output.sql"},
+        {"id": "2.3", "description": "order_items 表包含 order_id 和 product 相关字段", "type": "script", "script": "grep -qi 'order_id' output.sql && grep -qiE 'product|商品' output.sql"},
+        {"id": "2.4", "description": "金额/价格字段使用 DECIMAL 类型", "type": "script", "script": "grep -qi 'DECIMAL' output.sql"},
+        {"id": "2.5", "description": "每张表都有 PRIMARY KEY 定义", "type": "script", "script": "test $(grep -ci 'PRIMARY KEY' output.sql) -ge $(grep -ci 'CREATE TABLE' output.sql)"}
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "设计一个学生选课系统的数据库表。需要记录学生（学号、姓名）、课程（课程名、学分）、以及学生的选课成绩。注意遵循数据库范式",
+      "expected_output": "输出三张独立的表 students/courses/student_courses，选课表只存关联和成绩，不冗余存课程名和学分（满足2NF），字段带注释",
+      "files": [],
+      "assertions": [
+        {"id": "3.1", "description": "拆分为至少三张独立表（不把所有字段塞一张表）", "type": "script", "script": "test $(grep -ci 'CREATE TABLE' output.sql) -ge 3"},
+        {"id": "3.2", "description": "课程名和学分只在 courses 表，不在选课关联表（满足2NF）", "type": "script", "script": "grep -qi 'course_name\\|credit' output.sql && echo 'check manually if credit/course_name only in courses table'"},
+        {"id": "3.3", "description": "选课关联表包含学生和课程的外键字段", "type": "script", "script": "grep -qi 'student_id' output.sql && grep -qi 'course_id' output.sql"},
+        {"id": "3.4", "description": "每张表有 COMMENT 注释", "type": "script", "script": "test $(grep -ci 'ENGINE=InnoDB.*COMMENT=' output.sql) -ge $(grep -ci 'CREATE TABLE' output.sql)"}
+      ]
+    }
+  ]
+}
