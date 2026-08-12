@@ -31,6 +31,7 @@ ZCode 工作区持久定时自动化（CronCreate），零脚本文件。
 
 - Git Credential Manager 已缓存 HTTPS 凭据（已验证 `git ls-remote` 连通，2026-08-12 验证通过）
 - 本地代理 `http://127.0.0.1:7890` 已配置（项目级 `http.proxy`）
+- 根 `.gitignore` 忽略 `.claude-plugin/`（ZCode 客户端插件配置目录，2026-08-12 新增，避免被每日 `git add -A` 推送至公开仓库）
 
 ## 失败处理
 
