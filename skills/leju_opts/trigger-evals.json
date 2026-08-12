@@ -1,0 +1,22 @@
+[
+  {"query": "我的 lejuhub 的 GITLAB_API_TOKEN 存在哪？怎么读出来？", "should_trigger": true},
+  {"query": "环境变量怎么配？我想配乐聚的 gitlab token", "should_trigger": true},
+  {"query": "token 在哪创建？我调用 lejuhub API 报 401 了", "should_trigger": true},
+  {"query": "leju_gitlab_ops 需要的配置项都是什么？", "should_trigger": true},
+  {"query": "GITLAB_API_URL 是多少？写死的那个地址", "should_trigger": true},
+  {"query": "PowerShell 里怎么读用户环境变量 GITLAB_API_TOKEN？", "should_trigger": true},
+  {"query": "这个项目调 lejuhub 接口要用哪个 token 哪个地址？", "should_trigger": true},
+  {"query": "kpi-report 要读的配置从哪来？", "should_trigger": true},
+  {"query": "我在 bash 里 echo $GITLAB_API_TOKEN 是空的，怎么回事？", "should_trigger": true},
+  {"query": "帮我确认下 leju 系技能需要的环境变量和常量", "should_trigger": true},
+  {"query": "帮我查一下 lejuhub 上这个 issue 的评论", "should_trigger": false},
+  {"query": "给这个分支创建一个 MR", "should_trigger": false},
+  {"query": "把 pc/kuavo-desktop 的待办事项都清掉", "should_trigger": false},
+  {"query": "生成这周的周报", "should_trigger": false},
+  {"query": "为什么我配了 DOCKER_HOST 但 docker 命令还是连不上？", "should_trigger": false},
+  {"query": "JAVA_HOME 应该设成什么？", "should_trigger": false},
+  {"query": "帮我写个脚本读取系统环境变量并打印", "should_trigger": false},
+  {"query": "GitLab CI 的 pipeline 挂了，帮我看看日志", "should_trigger": false},
+  {"query": "这个 git 仓库的 remote origin 是什么？", "should_trigger": false},
+  {"query": "帮我总结这个分支的工作内容", "should_trigger": false}
+]

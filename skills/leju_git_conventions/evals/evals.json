@@ -1,0 +1,23 @@
+{
+  "skill_name": "leju_git_conventions",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "帮我创建一个新分支，我要修复用户登录页面的 token 过期后页面崩溃白屏的 bug",
+      "expected_output": "分支名格式为 <userSlug>/fix/token_expire_page_crash 或类似的下划线分隔命名，类型选 fix（优先级高于 bug），关键词使用下划线而非连字符",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "我已经修改了 src/utils/auth.ts 和 src/components/LoginForm.tsx，帮我提交这些改动。改动内容是：修复了 auth.ts 里 token 解析空指针异常（ERR-1002），LoginForm 增加了 loading 状态防止重复提交",
+      "expected_output": "commit message 格式为 'fix: <简短主题>'（≤72字符），包含 3-4 个动词开头的要点列表，每个要点具体到模块/文件；提交前过滤掉不应提交的文件，使用 git add 逐个文件而非 git add .",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "帮我创建一个 MR，标题是 'fix: 修复首页数据加载失败后无限重试的问题'。这个 bug 是因为 src/services/api.ts 第 42 行的 retry 逻辑没有设置最大重试次数上限导致的",
+      "expected_output": "MR 描述包含完整的五个结构化字段：问题现象、问题原因、解决方法、引入来源（通过 git log -S 或 git blame 定位）、责任人（引入 commit 的作者）。不能使用模糊话术如'历史遗留'作为引入来源",
+      "files": []
+    }
+  ]
+}
