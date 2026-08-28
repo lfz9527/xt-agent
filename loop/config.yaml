@@ -5,6 +5,31 @@ loop:
   maxFixAttempts: 5
   maxSameFailure: 2
 
+state:
+  enabled: true
+  path: .loop/state.yaml
+  requiredFields:
+    - run.status
+    - run.iteration
+    - context.baselineCommit
+    - request.goal
+    - request.acceptanceCriteria
+    - active.phase
+    - verification.status
+    - review.status
+
+git:
+  captureBaselineAtInit: true
+  recordBranch: true
+  requireCleanBaseline: false
+  captureDiffBeforeCompletion: true
+
+evidence:
+  enabled: true
+  path: .loop/evidence/
+  requireAcceptanceCriterionAssociation: true
+  preserveFailures: true
+
 states:
   - INIT
   - GOAL_REVIEW
