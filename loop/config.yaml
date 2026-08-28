@@ -9,22 +9,27 @@ state:
   enabled: true
   path: .loop/state.yaml
   requiredFields:
+    - run.id
     - run.status
     - run.iteration
+    - run.fixAttempts
+    - run.sameFailureCount
+    - context.projectRoot
     - context.baselineCommit
+    - context.baselineBranch
     - request.goal
     - request.acceptanceCriteria
     - active.phase
     - verification.status
     - review.status
 
-git:
+ git:
   captureBaselineAtInit: true
   recordBranch: true
   requireCleanBaseline: false
   captureDiffBeforeCompletion: true
 
-evidence:
+ evidence:
   enabled: true
   path: .loop/evidence/
   requireAcceptanceCriterionAssociation: true
@@ -33,8 +38,8 @@ evidence:
 states:
   - INIT
   - GOAL_REVIEW
-  - TEST_DESIGN
-  - TESTING
+  - WAITING_FOR_GOAL_CONFIRMATION
+  - PLAN
   - IMPLEMENT
   - VERIFY
   - REVIEW
