@@ -23,13 +23,13 @@ state:
     - verification.status
     - review.status
 
- git:
+git:
   captureBaselineAtInit: true
   recordBranch: true
   requireCleanBaseline: false
   captureDiffBeforeCompletion: true
 
- evidence:
+evidence:
   enabled: true
   path: .loop/evidence/
   requireAcceptanceCriterionAssociation: true
