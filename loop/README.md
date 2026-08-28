@@ -66,6 +66,14 @@ Existing `.loop/` artifacts are persistent Loop context and should be inspected 
 
 Artifact content is project-specific. A plan for a NestJS project may contain NestJS details because those details come from the project; they are not part of the generic Loop protocol.
 
+## State and Git baseline
+
+At `INIT`, create or update the current project's `.loop/state.yaml` according to the state schema in `loop/schemas/state.yaml` when the project does not provide a different convention.
+
+The state must track, at minimum, the current Loop status, iteration/fix counters, Goal, Acceptance Criteria, active phase/task, verification status, review status, and the Git baseline commit/branch captured at initialization.
+
+Before completion, capture the relevant Git diff against the baseline so Review can distinguish changes produced by the current Loop run from pre-existing changes.
+
 ## Two confirmation gates
 
 ### Goal Review
@@ -99,6 +107,12 @@ Loop MUST NOT assume a specific test framework, test file naming convention, tes
 Not every task requires automated tests. For documentation, configuration, tooling, design, or other tasks where tests are not applicable, use the project's appropriate verification method instead.
 
 Loop v1 does not require artificially creating an executable RED state when the implementation file does not exist. Do not create temporary Stub/Mock implementations merely to manufacture RED.
+
+## Evidence
+
+Each meaningful verification or review result should be recorded as structured Evidence associated with an Acceptance Criterion when applicable. Use `loop/schemas/evidence.yaml` as the default schema when the project does not define its own evidence format.
+
+Failed verification evidence should be preserved when it is useful for later FIX iterations; do not overwrite the history of previous attempts.
 
 ## Completion
 
