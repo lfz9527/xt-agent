@@ -1,0 +1,39 @@
+version: 1
+
+completion:
+  requiredEvidence:
+    - passed
+  rules:
+    - all_required_acceptance_criteria_must_pass
+    - agent_claim_cannot_complete_task
+    - verification_must_pass
+    - review_must_pass
+    - user_confirmation_must_complete_task
+
+evidence:
+  confidence:
+    agent_claim: low
+    review: medium
+    static: high
+    command: high
+    test: high
+    runtime: high
+
+confirmation:
+  goal:
+    required: true
+    blocksImplementation: true
+  result:
+    required: true
+    blocksDone: true
+
+failure:
+  maxSameFailure: 2
+  maxFixAttempts: 5
+
+security:
+  allowAutomaticCommit: false
+
+scope:
+  businessAgnostic: true
+  taskDefinitionsOutsideLoop: true
