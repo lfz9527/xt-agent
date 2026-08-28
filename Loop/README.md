@@ -79,22 +79,28 @@ After all required acceptance criteria have passing evidence and review succeeds
 - Confirm → `DONE`
 - Reject with feedback → `FIX → IMPLEMENT → VERIFY → REVIEW → READY_FOR_CONFIRMATION`
 
-## Test-first rule
+## Verification and test strategy
 
-For every new feature, feature change, or bug fix:
+Verification is required, but testing is only one possible verification method.
 
-1. Confirm the Goal first.
-2. Design the tests and acceptance criteria.
-3. Create or modify test files (`*.spec.ts`, `*.e2e-spec.ts`, etc.) **before** implementation files when the Loop policy requires test-first work.
-4. During the test phase, implementation files must not be created or modified.
-5. After the test phase is complete, implementation files may be created or modified.
-6. Run the tests and make the implementation pass.
+For new features, feature changes, and bug fixes, follow the current project's verification conventions and the Loop test-first policy when it applies:
+
+1. Confirm the Goal.
+2. Define Acceptance Criteria and the appropriate verification strategy.
+3. If the project's conventions and Loop policy require test-first work, create or modify the appropriate test artifacts before implementation files.
+4. During a test-first phase, do not create or modify implementation files.
+5. Complete the test-first phase before implementation changes.
+6. Run the project's applicable verification commands and make the implementation satisfy the Acceptance Criteria.
+
+Loop MUST NOT assume a specific test framework, test file naming convention, test directory, language, or test type. These are determined by the current project.
+
+Not every task requires automated tests. For documentation, configuration, tooling, design, or other tasks where tests are not applicable, use the project's appropriate verification method instead.
 
 Loop v1 does not require artificially creating an executable RED state when the implementation file does not exist. Do not create temporary Stub/Mock implementations merely to manufacture RED.
 
 ## Completion
 
-Agent claims are never sufficient for completion. Technical completion requires valid evidence for all required acceptance criteria, verification, and review. Final `DONE` additionally requires explicit user acceptance when required by policy.
+Agent claims are never sufficient for completion. Technical completion requires valid evidence for all required acceptance criteria, applicable verification, and review. Final `DONE` additionally requires explicit user acceptance when required by policy.
 
 ## Business agnostic
 
