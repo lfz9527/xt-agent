@@ -25,9 +25,9 @@ If `/loop` has not been explicitly invoked, do not modify repository files as pa
 
 ## Core boundary
 
-Loop is a generic execution protocol. It does not define business requirements, project architecture, technology choices, coding conventions, test conventions, or domain-specific output content.
+Loop is a generic execution protocol. It does not define business requirements, project architecture, technology choices, coding conventions, test conventions, verification tools, or domain-specific output content.
 
-The current project is the source of truth for those concerns. Before planning or implementation, discover and read the current project's applicable instructions, skills, existing code, and documentation.
+The current project is the source of truth for those concerns. Before planning or implementation, discover and read the current project's applicable instructions, skills, existing code, tests, and documentation.
 
 Loop has two distinct locations:
 
@@ -90,18 +90,24 @@ Do not modify implementation files before the goal confirmation gate has passed.
 
 After all required acceptance criteria have passing evidence and review succeeds, stop at the result confirmation gate when required. User rejection with feedback returns the run to `FIX`.
 
-## Test-first rule
+## Verification and test strategy
 
-For new features, feature changes, and bug fixes, follow the project's testing conventions and the Loop test-first policy. When the policy requires test-first work:
+Verification is required, but testing is only one possible verification method.
+
+For new features, feature changes, and bug fixes, follow the current project's verification conventions and the Loop test-first policy when it applies:
 
 1. Confirm the Goal.
-2. Design tests and Acceptance Criteria.
-3. Create or modify test files before implementation files.
-4. During the test phase, do not create or modify implementation files.
-5. Complete the test phase before implementation changes.
-6. Run the tests and make the implementation pass.
+2. Define Acceptance Criteria and the appropriate verification strategy.
+3. If the project's conventions and Loop policy require test-first work, create or modify the appropriate test artifacts before implementation files.
+4. During a test-first phase, do not create or modify implementation files.
+5. Complete the test-first phase before implementation changes.
+6. Run the project's applicable verification commands and make the implementation satisfy the Acceptance Criteria.
 
-Do not manufacture an executable RED state with temporary implementations merely to satisfy the workflow.
+Loop MUST NOT assume a specific test framework, test file naming convention, test directory, language, or test type. These are determined by the current project.
+
+Not every task requires automated tests. For documentation, configuration, tooling, design, or other tasks where tests are not applicable, use the project's appropriate verification method instead.
+
+Do not manufacture an executable RED state with temporary implementations merely to satisfy a workflow. If test-first work is required but the project does not define how the required test artifacts should be created, inspect project conventions and relevant skills before proceeding.
 
 ## Completion rule
 
@@ -110,7 +116,7 @@ Never treat the Agent's claim of completion as sufficient evidence.
 `DONE` requires:
 
 1. Every required acceptance criterion has passing evidence.
-2. Required verification passes.
+2. Applicable verification passes.
 3. Review passes.
 4. No configured Loop safety limit has been exceeded.
 5. Required final user confirmation has been received.
@@ -130,7 +136,7 @@ Artifacts should contain only information useful to the current project and task
 
 ## Verification and evidence
 
-During verification, prefer project-native commands and conventions. Do not assume a particular framework or package manager when the project defines another one.
+During verification, prefer project-native commands and conventions. Do not assume a particular framework, package manager, test runner, or verification tool when the project defines another one.
 
 Record each meaningful verification result as Evidence associated with an Acceptance Criterion. Preserve failed verification output when it is relevant to later FIX iterations.
 
