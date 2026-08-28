@@ -43,9 +43,9 @@ Skills    Loop
 | Harness | 提供 Agent 的运行环境、Session、工具、权限、Sandbox 等 |
 | xt-agent | 提供跨环境可复用的开发协议与工作流 |
 | Skill | 提供可复用能力与项目操作知识 |
-| Loop | 管理开发任务生命周期、状态、门禁与证据 |
+| Loop | 管理开发任务生命周期、状态、门禁、证据与学习 |
 | Project | 提供业务、技术、架构和工程上下文 |
-| `.loop/` | 保存项目级 Agent 开发状态、计划、证据和历史 |
+| `.loop/` | 保存项目级 Agent 开发状态、计划、证据、历史与学习 |
 
 ## 3. 当前版本：Loop v1 / P0+
 
@@ -63,6 +63,7 @@ Harness = Runtime Environment
 Project = Context
 .loop = Project-local Development State
 Evidence = Completion Proof
+Learning = Development Experience
 ```
 
 ## 4. 下一阶段：Loop Protocol / Reference Runtime
@@ -225,7 +226,7 @@ Completion Decision
 
 ## 12. Project Learning
 
-Loop 运行结果沉淀为项目经验：
+Loop 不应该只是执行一次性的固定流程，而应该从每次运行中积累项目经验。
 
 ```text
 Loop Run
@@ -234,32 +235,192 @@ Evidence
  ↓
 Observation
  ↓
-Project Learning
+Learning
+ ↓
+Project Strategy
 ```
 
-经验优先保存到当前项目 `.loop/learnings/`，而不是直接修改 Generic Loop。
+项目经验优先保存到：
 
-## 13. Controlled Evolution
+```text
+.loop/learnings/
+```
 
-长期目标不是让 Loop 无限制地“自己改自己”，而是建立受控进化：
+学习内容可以包括：
+
+- 常见失败模式
+- 项目特有的验证顺序
+- 高频修改路径
+- 有效的开发策略
+- 工具使用经验
+- Agent 执行表现
+- 哪些步骤经常导致返工
+
+这些经验默认只影响当前 Project，不直接修改 Generic Loop。
+
+## 13. Adaptive Loop / Self-Evolving Loop
+
+长期目标是让 Loop 能够根据历史执行结果，持续优化“如何完成开发任务”的策略。
+
+这里的自我进化不是让 Loop 直接修改自己的核心代码，而是让 Loop 学习并调整下一次任务的执行策略。
+
+核心闭环：
+
+```text
+Goal
+ ↓
+Explore
+ ↓
+Plan
+ ↓
+Execute
+ ↓
+Verify
+ ↓
+Review
+ ↓
+Result
+ ↓
+Observation
+ ↓
+Learning
+ ↓
+Strategy Update
+ └──────────────→ 下一次 Loop
+```
+
+### 13.1 Learning
+
+从历史 Loop 中识别稳定模式。
+
+例如某个项目多次出现：
+
+```text
+IMPLEMENT
+ ↓
+TEST
+ ↓
+发现 Type Error
+ ↓
+FIX
+```
+
+Loop 可以形成一个候选观察：
+
+```yaml
+observation:
+  pattern: "implementation 后经常出现 type errors"
+  frequency: 8
+  confidence: 0.91
+```
+
+### 13.2 Strategy Adaptation
+
+经过验证的项目经验可以改变后续 Loop 的策略：
+
+```text
+PLAN
+ ↓
+IMPLEMENT
+ ↓
+TYPECHECK
+ ↓
+TEST
+ ↓
+REVIEW
+```
+
+也就是说，同一个 Generic Loop 可以针对不同项目逐渐形成不同的 Project Strategy。
+
+```text
+Generic Loop
+     │
+     └── Project Learning
+             ├── NestJS Strategy
+             ├── React Strategy
+             ├── Python Strategy
+             └── ...
+```
+
+### 13.3 Agent Selection Learning
+
+当项目使用多个 Agent / Harness 时，Loop 还可以记录不同 Agent 在不同任务上的表现：
+
+```text
+Task
+ │
+ ├── Codex
+ ├── Claude
+ └── DeepSeek
+       ↓
+   Execution
+       ↓
+    Evidence
+       ↓
+ Performance
+```
+
+长期可以形成：
+
+```text
+Architecture task → Agent A
+Large refactor    → Agent B
+Exploration       → Agent C
+Testing           → Agent D
+```
+
+最终由 Loop 根据任务特征选择更合适的 Agent / Harness。
+
+该能力必须是可选策略，不应成为 Generic Loop 对特定 Agent 的硬编码依赖。
+
+## 14. Controlled Evolution
+
+Self-Evolving Loop 必须采用受控进化，而不是运行时直接修改自身。
+
+推荐模型：
 
 ```text
 Observation
     ↓
 Learning
     ↓
-Candidate Rule / Skill
+Candidate Strategy / Rule / Skill
     ↓
-Validation
+Simulation / Validation
     ↓
-Human Approval
+Confidence
+    ↓
+Human Approval / Policy Gate
     ↓
 Promotion
 ```
 
+候选对象可以包含：
+
+- Loop Strategy
+- Project Rule
+- Skill
+- Verification Strategy
+- Agent Selection Policy
+- Generic Rule
+
+经验晋升路径：
+
+```text
+Project Learning
+       ↓
+Cross-project Pattern
+       ↓
+Candidate Generic Rule / Skill
+       ↓
+Validation
+       ↓
+xt-agent Update
+```
+
 只有跨项目、可重复、经过验证的模式才应进入 Generic Layer。
 
-## 14. Evolution Safety
+## 15. Evolution Safety
 
 Loop / xt-agent 的自我进化必须满足：
 
@@ -270,12 +431,14 @@ Loop / xt-agent 的自我进化必须满足：
 5. 需要人工确认的升级不得绕过确认门禁。
 6. 状态模型需要保持兼容或提供迁移。
 7. 每次升级都必须可回滚。
+8. Project Learning 与 Generic Learning 必须隔离。
+9. Agent Selection 结果必须可解释，并允许人工覆盖。
 
 目标：
 
 > **观察 → 学习 → 提议 → 验证 → 批准 → 升级**
 
-## 15. Roadmap
+## 16. Roadmap
 
 ```text
 Loop v1 / P0+
@@ -303,21 +466,29 @@ Loop v2
   ├── Exploration Agent
   ├── Skill Discovery
   ├── Multi-Agent orchestration
-  └── richer Evidence
+  ├── richer Evidence
+  ├── Project Learning
+  └── Adaptive Loop
   │
   ▼
 Loop v2.x
   │
-  ├── Project Learning
+  ├── Strategy Learning
+  ├── Agent Selection Learning
   └── Cross-project patterns
   │
   ▼
 xt-agent v3
   │
-  └── Controlled Evolution
+  ├── Candidate Evolution
+  ├── Validation Pipeline
+  └── Controlled Promotion
+  │
+  ▼
+Self-Evolving Loop
 ```
 
-## 16. 长期愿景
+## 17. 长期愿景
 
 `xt-agent` 不需要成为另一个 Codex、Claude Code 或 DeepSeek Harness。
 
@@ -338,15 +509,17 @@ xt-agent v3
           ▼                   ▼
         Skills               Loop
                               │
-                              ▼
-                           .loop/
-                              │
+                    ┌─────────┴─────────┐
+                    ▼                   ▼
+             Project Learning     Generic Protocol
+                    │                   │
+                    └─────────┬─────────┘
                               ▼
                            Project
 ```
 
 最终希望实现的是：
 
-> **Agent 可以替换，Harness 可以替换，项目开发过程不应该被重置。**
+> **Agent 可以替换，Harness 可以替换，项目开发过程不应该被重置；Loop 可以从开发过程中学习，并逐渐形成更适合当前项目、任务和 Agent 的开发策略。**
 
-`xt-agent` 的核心资产不是某一个 Agent，而是可跨环境复用的 Workflow、Protocol、Skills、Project State、Evidence 和 Learning。
+`xt-agent` 的核心资产不是某一个 Agent，而是可跨环境复用的 Workflow、Protocol、Skills、Project State、Evidence、Learning 和 Evolution。
