@@ -5,151 +5,335 @@ description: Run the project Loop v1 workflow. This skill is ONLY activated by a
 
 # Loop v1
 
-## Trigger rule
+Loop is a generic, stateful execution protocol. The Agent performs work; Loop controls lifecycle and safety; project context supplies technical/domain rules; the project `.loop/` workspace persists run state and artifacts.
 
-**The only trigger is an explicit `/loop` invocation from the user.**
+## Trigger
 
-Examples that start Loop:
+Loop starts **only** from an explicit `/loop` invocation. Normal conversation MUST NOT start, resume, or authorize repository modifications through Loop.
 
-- `/loop 实现 Bookmark Tag 系统`
-- `/loop 修复登录接口的这个问题`
+## Layer boundaries
 
-Examples that MUST NOT start Loop:
+- `skills/loop/SKILL.md`: executable Agent behavior and phase contract.
+- `loop/config.yaml`: generic policies, limits, confirmation requirements, and defaults.
+- `loop/schemas/state.yaml`: state data model and legal transitions.
+- `loop/schemas/evidence.yaml`: default evidence data model.
+- `<project>/.loop/`: persistent state and project-specific artifacts.
 
-- `帮我看看这个功能`
-- `分析一下代码`
-- `这个测试为什么失败`
-- `继续刚才的工作`
+Loop is business- and technology-agnostic. Do not encode framework, language, test framework, file naming, architecture, or domain rules into the generic Loop implementation.
 
-If `/loop` has not been explicitly invoked, do not modify repository files as part of Loop.
+## Runtime contract
 
-## Core boundary
+When `/loop` starts or resumes, treat the persisted project state as the runtime source of truth:
 
-Loop is a generic execution protocol. It does not define business requirements, project architecture, technology choices, coding conventions, test conventions, verification tools, or domain-specific output content.
+```text
+load state
+  ↓
+validate state
+  ↓
+validate current project/Git context
+  ↓
+execute current phase
+  ↓
+check exit condition
+  ↓
+record artifacts/evidence
+  ↓
+transition state
+  ↓
+persist state
+```
 
-The current project is the source of truth for those concerns. Before planning or implementation, discover and read the current project's applicable instructions, skills, existing code, tests, and documentation.
+Every phase has five contracts:
 
-Loop has two distinct locations:
+1. **Entry conditions** — what must already be true.
+2. **Allowed actions** — what the Agent may do in that phase.
+3. **Required artifacts/evidence** — what must be persisted before leaving it.
+4. **Exit conditions** — what must be true to leave it.
+5. **Allowed transitions** — which next states are legal.
 
-- `xt-agent`'s Loop implementation defines the generic workflow and policies.
-- The current project's `.loop/` is the persistent workspace for this Loop run and its project-specific artifacts.
-
-Never write project task artifacts into the Loop implementation directory in `xt-agent`.
+The Agent MUST evaluate the current state before acting. It MUST NOT perform actions belonging to a later phase early merely because they seem useful.
 
 ## Project workspace
 
-All Loop artifacts belong to the current project and MUST be stored under `<project-root>/.loop/`.
+All run-specific artifacts belong under `<project-root>/.loop/`.
 
-Use this default structure when the project does not already define a more specific `.loop/` convention:
+Default structure when the project has no existing convention:
 
 ```text
 .loop/
+├── state.yaml
 ├── plans/
 ├── tasks/
 ├── specs/
 └── evidence/
 ```
 
-Create `.loop/` and only the required subdirectories when they do not exist. Do not create unrelated project files merely to initialize the workspace.
+Follow an existing project `.loop/` convention when one exists. Create only directories required by the current run.
 
-Existing `.loop/` files are part of the Loop context. Before starting a new run, inspect relevant existing plans, tasks, specs, and evidence so the run can continue existing work instead of creating conflicting artifacts.
+## INIT
 
-If the project already defines a `.loop/` structure or artifact convention, follow the project's convention rather than replacing it with the default structure.
+### Entry
 
-## Project context
+An explicit `/loop` invocation exists.
 
-Before implementation:
+### Actions
 
-1. Identify the project root and current working repository.
-2. Read applicable `AGENTS.md` and other project-level instructions.
-3. Discover relevant project skills under the project's agent/skill directories and read the ones applicable to the task.
-4. Read the relevant existing code, tests, and project documentation.
-5. Inspect relevant existing `.loop/` artifacts.
-6. Convert the user's request into a Task and explicit Acceptance Criteria using the project's terminology and constraints.
-7. Establish the current Git state as the Loop baseline.
+1. Identify the project root.
+2. Load applicable project instructions, including `AGENTS.md` and relevant project skills.
+3. Inspect relevant source, tests, documentation, and existing `.loop/` artifacts.
+4. If `.loop/state.yaml` contains an active run, validate it and prepare to resume rather than silently creating a new run.
+5. Capture the current Git branch and baseline commit before implementation.
+6. Create/update `.loop/state.yaml` using `loop/schemas/state.yaml` when no project-specific state convention exists.
 
-Project context determines the contents of plans, tasks, specs, and evidence. Do not copy unrelated project rules into artifacts merely for completeness.
+### Exit
 
-## Execution contract
+Project context is sufficient to perform Goal Review and state contains a valid run identity and Git baseline.
 
-Once `/loop` is explicitly invoked, run the following state machine:
+### Transition
 
-`INIT → PLAN → IMPLEMENT → VERIFY → REVIEW → COMPLETE`
+`INIT → GOAL_REVIEW` or `BLOCKED`.
 
-When verification or review fails:
+## GOAL_REVIEW
 
-`VERIFY/REVIEW → FIX → IMPLEMENT → VERIFY`
+### Entry
 
-Terminate as `BLOCKED` when the configured safety limits are reached.
+Project context is loaded and the run state is valid.
 
-## Goal and result confirmation
+### Actions
 
-Before implementation, present the Goal, proposed plan, and Acceptance Criteria and obtain explicit user confirmation when required by the Loop policy.
+Produce the proposed:
 
-Do not modify implementation files before the goal confirmation gate has passed.
+- Goal
+- Acceptance Criteria
+- verification strategy
+- high-level plan
 
-After all required acceptance criteria have passing evidence and review succeeds, stop at the result confirmation gate when required. User rejection with feedback returns the run to `FIX`.
+Persist the plan under `.loop/plans/` when persistent plan artifacts are required.
 
-## Verification and test strategy
+### Exit
 
-Verification is required, but testing is only one possible verification method.
+The user has been shown the Goal, plan, and Acceptance Criteria and the run is ready for confirmation.
 
-For new features, feature changes, and bug fixes, follow the current project's verification conventions and the Loop test-first policy when it applies:
+### Transition
 
-1. Confirm the Goal.
-2. Define Acceptance Criteria and the appropriate verification strategy.
-3. If the project's conventions and Loop policy require test-first work, create or modify the appropriate test artifacts before implementation files.
-4. During a test-first phase, do not create or modify implementation files.
-5. Complete the test-first phase before implementation changes.
-6. Run the project's applicable verification commands and make the implementation satisfy the Acceptance Criteria.
+`GOAL_REVIEW → WAITING_FOR_GOAL_CONFIRMATION` or `BLOCKED`.
 
-Loop MUST NOT assume a specific test framework, test file naming convention, test directory, language, or test type. These are determined by the current project.
+## WAITING_FOR_GOAL_CONFIRMATION
 
-Not every task requires automated tests. For documentation, configuration, tooling, design, or other tasks where tests are not applicable, use the project's appropriate verification method instead.
+### Entry
 
-Do not manufacture an executable RED state with temporary implementations merely to satisfy a workflow. If test-first work is required but the project does not define how the required test artifacts should be created, inspect project conventions and relevant skills before proceeding.
+Goal Review is complete.
 
-## Completion rule
+### Actions
 
-Never treat the Agent's claim of completion as sufficient evidence.
+Wait for explicit user confirmation. Do not modify implementation files.
 
-`DONE` requires:
+### Exit
 
-1. Every required acceptance criterion has passing evidence.
-2. Applicable verification passes.
-3. Review passes.
-4. No configured Loop safety limit has been exceeded.
-5. Required final user confirmation has been received.
+The user explicitly approves the Goal/plan.
 
-Use the Loop policy files as the source of truth for state, safety, evidence, and completion rules.
+### Transition
 
-## Artifact rules
+`WAITING_FOR_GOAL_CONFIRMATION → PLAN` or `BLOCKED`.
 
-During a run, persist project-specific artifacts under the current project's `.loop/` workspace:
+## PLAN
 
-- `plans/` — the run-level plan, Goal, Acceptance Criteria, and project-relevant context.
-- `tasks/` — actionable task breakdown and task progress when the run needs persistent task records.
-- `specs/` — detailed design/specification artifacts when the task requires them.
-- `evidence/` — verification and review evidence associated with Acceptance Criteria.
+### Entry
 
-Artifacts should contain only information useful to the current project and task. Project-specific technical details are allowed because they come from the current project's context; they must not be promoted into the generic Loop implementation.
+Goal confirmation has passed.
 
-## Verification and evidence
+### Actions
 
-During verification, prefer project-native commands and conventions. Do not assume a particular framework, package manager, test runner, or verification tool when the project defines another one.
+Turn the confirmed Goal into actionable tasks using project conventions. Select relevant project skills and define the verification approach. If test-first is required by project policy, identify the appropriate project-native test artifacts before implementation.
 
-Record each meaningful verification result as Evidence associated with an Acceptance Criterion. Preserve failed verification output when it is relevant to later FIX iterations.
+Persist task/spec artifacts when needed.
 
-## Failure handling
+### Exit
 
-When a verifier fails:
+Tasks are actionable, required skills are known, and the verification strategy is defined.
 
-1. Preserve the failure output in the current project's `.loop/evidence/` when persistent evidence is appropriate.
-2. Associate it with the relevant criterion when possible.
-3. Pass the failure and relevant context into the next FIX iteration.
-4. Do not discard previous failed attempts.
-5. Stop with `BLOCKED` after the configured repeated-failure or iteration limit.
+### Transition
 
-## User cancellation
+`PLAN → IMPLEMENT` or `BLOCKED`.
 
-If the user explicitly asks to stop/cancel the current Loop run, stop the Loop immediately and report the current state and unresolved criteria.
+## IMPLEMENT
+
+### Entry
+
+Goal confirmation and planning are complete.
+
+### Actions
+
+Execute only the current task using project context and relevant skills. Respect the project's coding conventions and any test-first requirements.
+
+If test-first applies, implementation-file modification is prohibited until the required test-artifact phase is complete. Loop does not assume any particular test framework or file naming convention.
+
+Update the active task and iteration state as work progresses.
+
+### Exit
+
+The current implementation task is ready for project-native verification.
+
+### Transition
+
+`IMPLEMENT → VERIFY` or `BLOCKED`.
+
+## VERIFY
+
+### Entry
+
+Implementation changes for the current task are complete.
+
+### Actions
+
+Run the project's applicable verification methods. Testing is optional when inappropriate; Verification is not optional.
+
+Possible verification methods include project-native tests, build/type checks, lint/static analysis, documentation checks, configuration validation, manual checks, or other project-defined validation.
+
+For every meaningful result, create structured Evidence under `.loop/evidence/` when the project does not define another convention. Associate Evidence with an Acceptance Criterion when applicable. Preserve failures rather than overwriting prior attempts.
+
+### Exit
+
+Verification either passes or has a recorded actionable failure.
+
+### Transition
+
+- pass → `REVIEW`
+- fail → `FIX`
+- unsafe/blocked → `BLOCKED`
+
+## REVIEW
+
+### Entry
+
+Verification has passed for the current implementation state.
+
+### Actions
+
+Review:
+
+- Acceptance Criteria and Evidence
+- project instructions and relevant skills
+- implementation quality and scope
+- Git diff against the recorded baseline
+- regressions or obvious omissions
+
+Record meaningful review evidence.
+
+### Exit
+
+Review either passes or identifies actionable changes.
+
+### Transition
+
+- pass → `READY_FOR_CONFIRMATION`
+- fail → `FIX`
+- unsafe/blocked → `BLOCKED`
+
+## READY_FOR_CONFIRMATION
+
+### Entry
+
+All required Acceptance Criteria have passing evidence and Review has passed.
+
+### Actions
+
+Present the result and evidence summary. Do not mark `DONE` until required user acceptance is received.
+
+### Exit
+
+The user accepts or rejects the result.
+
+### Transition
+
+- accepted → `DONE`
+- rejected with actionable feedback → `FIX`
+- cannot safely continue → `BLOCKED`
+
+## FIX
+
+### Entry
+
+Verification, Review, or final user feedback identified an actionable failure.
+
+### Actions
+
+1. Preserve the failure/review evidence.
+2. Increment fix/iteration counters.
+3. Identify the root cause and smallest appropriate correction.
+4. Update the active task and state.
+5. Do not discard previous attempts.
+
+### Exit
+
+A corrective implementation step is ready.
+
+### Transition
+
+`FIX → IMPLEMENT` or `BLOCKED` when configured limits are reached.
+
+## DONE / BLOCKED
+
+`DONE` is terminal. It requires all required Acceptance Criteria, passing applicable Verification, passing Review, and required final user acceptance.
+
+`BLOCKED` is terminal for the current run. Use it when safe continuation cannot be established or configured iteration/failure limits are reached. Preserve the state and relevant evidence so a later explicit `/loop` can inspect the reason rather than guessing.
+
+## Resume protocol
+
+If `.loop/state.yaml` contains a non-terminal active run:
+
+1. Load the persisted state.
+2. Validate its schema and current phase.
+3. Confirm the project root and Git branch are compatible with the recorded context.
+4. Read the referenced plan/task/spec/evidence artifacts.
+5. Resume only from the persisted phase.
+6. Preserve run identity and counters.
+7. If state or repository context is inconsistent, stop as `BLOCKED` rather than guessing.
+
+Never use chat history as a substitute for persisted state.
+
+## State transition enforcement
+
+Before every transition, verify:
+
+```text
+current state
++ event/result
++ required artifacts/evidence
++ configured limits
+→ allowed next state
+```
+
+A transition not listed by `loop/schemas/state.yaml` is invalid. Do not skip confirmation gates or jump directly to `DONE`.
+
+Persist state after each meaningful phase boundary and before entering a terminal state. Preserve the same run ID throughout a run.
+
+## Git contract
+
+Capture branch and baseline commit at `INIT`. A dirty baseline does not automatically block the run. Before `DONE`, inspect the diff from that baseline and use it during Review.
+
+Loop does not automatically commit or push unless explicit project policy and user authorization permit it.
+
+## Evidence contract
+
+Evidence is the bridge between work and completion:
+
+```text
+Acceptance Criterion
+        ↓
+Verification / Review
+        ↓
+Evidence
+        ↓
+Completion decision
+```
+
+An Agent's statement that something works is not Evidence. Use actual project-native results or clearly documented manual verification.
+
+## Safety limits
+
+Honor `loop/config.yaml` limits for iterations, fix attempts, and repeated failures. When a limit is reached, preserve the latest evidence and transition to `BLOCKED` rather than continuing indefinitely.
+
+## Cancellation
+
+If the user explicitly cancels the current Loop run, stop immediately, persist the current state and unresolved criteria, and do not continue execution.

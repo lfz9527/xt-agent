@@ -1,0 +1,16 @@
+version: 1
+
+# Project-local evidence record: <project-root>/.loop/evidence/<id>.yaml
+
+id: <evidence-id>
+criterion: <acceptance-criterion-id>
+type: test | command | static | runtime | review | manual | other
+status: passed | failed | skipped
+confidence: high | medium | low
+
+command: null
+summary: <what was verified>
+output: null
+artifact: null
+
+recordedAt: <timestamp>

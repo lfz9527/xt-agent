@@ -1,0 +1,72 @@
+version: 1
+
+# Project-local file: <project-root>/.loop/state.yaml
+# This file records the resumable state of the active Loop run.
+
+run:
+  id: <unique-run-id>
+  status: INIT
+  iteration: 0
+  fixAttempts: 0
+  sameFailureCount: 0
+
+context:
+  projectRoot: <absolute-or-project-relative-root>
+  baselineCommit: <git-commit-sha>
+  baselineBranch: <git-branch>
+
+request:
+  goal: <goal>
+  acceptanceCriteria: []
+
+plan:
+  artifact: <relative-path-under-.loop/plans>
+
+active:
+  task: null
+  phase: INIT
+
+criteria: {}
+
+verification:
+  status: pending
+  evidence: []
+
+review:
+  status: pending
+
+updatedAt: <timestamp>
+
+# State machine
+# INIT -> GOAL_REVIEW -> WAITING_FOR_GOAL_CONFIRMATION -> PLAN -> IMPLEMENT
+# IMPLEMENT -> VERIFY -> REVIEW -> READY_FOR_CONFIRMATION -> DONE
+# VERIFY -> FIX when verification fails
+# REVIEW -> FIX when review fails
+# READY_FOR_CONFIRMATION -> FIX when the user rejects the result
+# FIX -> IMPLEMENT
+# Any active state -> BLOCKED when execution cannot safely continue.
+# No state transition may skip the required confirmation gates.
+
+stateRules:
+  INIT:
+    allowedNext: [GOAL_REVIEW, BLOCKED]
+  GOAL_REVIEW:
+    allowedNext: [WAITING_FOR_GOAL_CONFIRMATION, BLOCKED]
+  WAITING_FOR_GOAL_CONFIRMATION:
+    allowedNext: [PLAN, BLOCKED]
+  PLAN:
+    allowedNext: [IMPLEMENT, BLOCKED]
+  IMPLEMENT:
+    allowedNext: [VERIFY, BLOCKED]
+  VERIFY:
+    allowedNext: [REVIEW, FIX, BLOCKED]
+  REVIEW:
+    allowedNext: [READY_FOR_CONFIRMATION, FIX, BLOCKED]
+  READY_FOR_CONFIRMATION:
+    allowedNext: [DONE, FIX, BLOCKED]
+  FIX:
+    allowedNext: [IMPLEMENT, BLOCKED]
+  DONE:
+    allowedNext: []
+  BLOCKED:
+    allowedNext: []
