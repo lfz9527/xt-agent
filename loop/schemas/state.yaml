@@ -1,0 +1,38 @@
+version: 1
+
+# Project-local file: <project-root>/.loop/state.yaml
+# This file records the resumable state of the active Loop run.
+
+run:
+  id: <unique-run-id>
+  status: INIT
+  iteration: 0
+  fixAttempts: 0
+  sameFailureCount: 0
+
+context:
+  projectRoot: <absolute-or-project-relative-root>
+  baselineCommit: <git-commit-sha>
+  baselineBranch: <git-branch>
+
+request:
+  goal: <goal>
+  acceptanceCriteria: []
+
+plan:
+  artifact: <relative-path-under-.loop/plans>
+
+active:
+  task: null
+  phase: INIT
+
+criteria: {}
+
+verification:
+  status: pending
+  evidence: []
+
+review:
+  status: pending
+
+updatedAt: <timestamp>
