@@ -31,7 +31,7 @@ The current project is the source of truth for those concerns. Before planning o
 
 Loop has two distinct locations:
 
-- `xt-agent`'s Loop implementation defines the generic workflow and policies.
+- `xt-agent`'s `loop/` implementation defines the generic workflow and policies.
 - The current project's `.loop/` is the persistent workspace for this Loop run and its project-specific artifacts.
 
 Never write project task artifacts into the Loop implementation directory in `xt-agent`.
@@ -44,6 +44,7 @@ Use this default structure when the project does not already define a more speci
 
 ```text
 .loop/
+├── state.yaml
 ├── plans/
 ├── tasks/
 ├── specs/
@@ -52,9 +53,32 @@ Use this default structure when the project does not already define a more speci
 
 Create `.loop/` and only the required subdirectories when they do not exist. Do not create unrelated project files merely to initialize the workspace.
 
-Existing `.loop/` files are part of the Loop context. Before starting a new run, inspect relevant existing plans, tasks, specs, and evidence so the run can continue existing work instead of creating conflicting artifacts.
+Existing `.loop/` files are part of the Loop context. Before starting a new run, inspect relevant existing state, plans, tasks, specs, and evidence so the run can continue existing work instead of creating conflicting artifacts.
 
 If the project already defines a `.loop/` structure or artifact convention, follow the project's convention rather than replacing it with the default structure.
+
+## Persistent state
+
+At `INIT`, create or update `<project-root>/.loop/state.yaml` according to the default schema in `loop/schemas/state.yaml` unless the current project defines another state convention.
+
+The state is the machine-readable source for resuming the active run. It MUST track, at minimum:
+
+- current Loop status/phase;
+- iteration, fix-attempt, and repeated-failure counters;
+- Goal and Acceptance Criteria;
+- active task;
+- verification and review status;
+- Git baseline commit and branch.
+
+Update state when the run crosses a meaningful phase boundary, changes task/criterion status, records verification, enters FIX/BLOCKED, or reaches a confirmation gate. Do not treat conversational history as the only source of Loop state.
+
+## Git baseline
+
+At `INIT`, capture the current Git branch and baseline commit before implementation. A dirty working tree does not automatically block Loop; preserve the baseline so pre-existing changes can be distinguished from changes produced by the run.
+
+Before completion, inspect the Git diff against the recorded baseline. Review must use this diff, together with the project's verification evidence, to determine what the Loop run changed.
+
+Loop MUST NOT automatically commit or push unless an explicit project policy and user authorization allow it.
 
 ## Project context
 
@@ -64,7 +88,7 @@ Before implementation:
 2. Read applicable `AGENTS.md` and other project-level instructions.
 3. Discover relevant project skills under the project's agent/skill directories and read the ones applicable to the task.
 4. Read the relevant existing code, tests, and project documentation.
-5. Inspect relevant existing `.loop/` artifacts.
+5. Inspect relevant existing `.loop/` artifacts, especially `state.yaml` when present.
 6. Convert the user's request into a Task and explicit Acceptance Criteria using the project's terminology and constraints.
 7. Establish the current Git state as the Loop baseline.
 
@@ -127,6 +151,7 @@ Use the Loop policy files as the source of truth for state, safety, evidence, an
 
 During a run, persist project-specific artifacts under the current project's `.loop/` workspace:
 
+- `state.yaml` — machine-readable resumable run state.
 - `plans/` — the run-level plan, Goal, Acceptance Criteria, and project-relevant context.
 - `tasks/` — actionable task breakdown and task progress when the run needs persistent task records.
 - `specs/` — detailed design/specification artifacts when the task requires them.
@@ -138,7 +163,11 @@ Artifacts should contain only information useful to the current project and task
 
 During verification, prefer project-native commands and conventions. Do not assume a particular framework, package manager, test runner, or verification tool when the project defines another one.
 
-Record each meaningful verification result as Evidence associated with an Acceptance Criterion. Preserve failed verification output when it is relevant to later FIX iterations.
+Record each meaningful verification or review result as structured Evidence associated with an Acceptance Criterion when applicable. Use `loop/schemas/evidence.yaml` as the default schema when the project does not define its own evidence format.
+
+Evidence MUST record at minimum the criterion association when applicable, evidence type, status, confidence, and a concise summary. Include the command/output or referenced artifact when available.
+
+Preserve failed verification evidence when it is relevant to later FIX iterations. Do not overwrite previous failed attempts.
 
 ## Failure handling
 
@@ -146,9 +175,10 @@ When a verifier fails:
 
 1. Preserve the failure output in the current project's `.loop/evidence/` when persistent evidence is appropriate.
 2. Associate it with the relevant criterion when possible.
-3. Pass the failure and relevant context into the next FIX iteration.
-4. Do not discard previous failed attempts.
-5. Stop with `BLOCKED` after the configured repeated-failure or iteration limit.
+3. Update `.loop/state.yaml` with the failure and current FIX iteration/counters.
+4. Pass the failure and relevant context into the next FIX iteration.
+5. Do not discard previous failed attempts.
+6. Stop with `BLOCKED` after the configured repeated-failure or iteration limit.
 
 ## User cancellation
 
