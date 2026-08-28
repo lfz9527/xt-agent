@@ -70,7 +70,27 @@ The state is the machine-readable source for resuming the active run. It MUST tr
 - verification and review status;
 - Git baseline commit and branch.
 
-Update state when the run crosses a meaningful phase boundary, changes task/criterion status, records verification, enters FIX/BLOCKED, or reaches a confirmation gate. Do not treat conversational history as the only source of Loop state.
+### State transition rules
+
+The active state MUST move only through transitions allowed by the state schema. The normal lifecycle is:
+
+`INIT → GOAL_REVIEW → WAITING_FOR_GOAL_CONFIRMATION → PLAN → IMPLEMENT → VERIFY → REVIEW → READY_FOR_CONFIRMATION → DONE`
+
+Failure paths are:
+
+`VERIFY → FIX → IMPLEMENT`
+
+`REVIEW → FIX → IMPLEMENT`
+
+`READY_FOR_CONFIRMATION → FIX → IMPLEMENT` when the user rejects the result with actionable feedback.
+
+Any active state may transition to `BLOCKED` when the Loop cannot safely continue. `DONE` and `BLOCKED` are terminal states.
+
+Do not skip a required confirmation gate. Do not resume by inference from chat history when `.loop/state.yaml` contains a valid active run.
+
+At resume, inspect the persisted state and its referenced artifacts/evidence, validate that the current repository still matches the recorded project and branch context, then continue from the persisted phase or stop as `BLOCKED` if safe continuation cannot be established.
+
+Update state atomically at meaningful phase boundaries. A state update MUST preserve the previous run identity and increment counters rather than silently resetting them during a resume.
 
 ## Git baseline
 
@@ -98,13 +118,17 @@ Project context determines the contents of plans, tasks, specs, and evidence. Do
 
 Once `/loop` is explicitly invoked, run the following state machine:
 
-`INIT → PLAN → IMPLEMENT → VERIFY → REVIEW → COMPLETE`
+`INIT → GOAL_REVIEW → WAITING_FOR_GOAL_CONFIRMATION → PLAN → IMPLEMENT → VERIFY → REVIEW → READY_FOR_CONFIRMATION → DONE`
 
 When verification or review fails:
 
 `VERIFY/REVIEW → FIX → IMPLEMENT → VERIFY`
 
-Terminate as `BLOCKED` when the configured safety limits are reached.
+When the user rejects the result:
+
+`READY_FOR_CONFIRMATION → FIX → IMPLEMENT → VERIFY`
+
+Terminate as `BLOCKED` when the configured safety limits are reached or safe continuation cannot be established.
 
 ## Goal and result confirmation
 
