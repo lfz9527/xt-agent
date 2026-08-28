@@ -96,8 +96,6 @@ Loop v1 does not require artificially creating an executable RED state when the 
 
 Agent claims are never sufficient for completion. Technical completion requires valid evidence for all required acceptance criteria, verification, and review. Final `DONE` additionally requires explicit user acceptance when required by policy.
 
-## ZCode integration
-
-ZCode is treated as an Agent Executor. Loop owns goal confirmation, state, acceptance criteria, evidence, retry policy, and completion decisions.
+## Business agnostic
 
 Loop is business-agnostic: business requirements belong to the current project/task, not to this directory.
