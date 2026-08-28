@@ -1,47 +1,115 @@
 # Loop v1
 
-Loop is the generic control layer for autonomous software tasks.
+Loop is the generic, stateful control layer for autonomous software tasks.
 
-Loop does not contain or depend on business-specific task definitions. It defines only the execution protocol, state machine, confirmation gates, evidence rules, and failure/retry policy.
+The Agent performs work. Loop controls lifecycle, state transitions, safety limits, confirmation gates, and evidence. The current project supplies technical and domain context. The project's `.loop/` workspace persists the run state and project-specific artifacts.
 
 ## Principle
 
-The Agent performs work; verification and review provide evidence; the user remains in control of the goal and final acceptance.
-
-Loop is reusable across projects. Project requirements, architecture, technology choices, coding conventions, test conventions, and domain-specific content come from the current project.
+Loop is reusable across projects and does not contain business or technology-specific rules. Project requirements, architecture, technology choices, coding conventions, test conventions, and verification methods come from the current project.
 
 ## Trigger
 
-Loop may start **only** when the user explicitly invokes `/loop`.
+Loop starts **only** when the user explicitly invokes `/loop`.
 
-Normal conversation MUST NOT start Loop or authorize repository modifications through Loop.
+Normal conversation MUST NOT start, resume, or authorize repository modifications through Loop.
 
 ## Flow
 
-`/loop → Goal Review → User Confirmation → Test Design → Write Tests → Implement → Verify → Review → Result Review → User Confirmation → Done`
+```text
+/loop
+  ↓
+INIT
+  ↓
+GOAL_REVIEW
+  ↓
+WAITING_FOR_GOAL_CONFIRMATION
+  ↓
+PLAN
+  ↓
+IMPLEMENT
+  ↓
+VERIFY
+  ↓
+REVIEW
+  ↓
+READY_FOR_CONFIRMATION
+  ↓
+DONE
+```
 
-Verification or review failures enter `Fix → Implement → Verify`.
+Failure paths:
 
-## Project boundary
+```text
+VERIFY / REVIEW
+       ↓
+      FIX
+       ↓
+  IMPLEMENT
+```
 
-Loop has two distinct locations:
+If execution cannot safely continue, the run enters `BLOCKED`.
 
-- The Loop implementation (`loop/` and `skills/loop/`) contains generic workflow and policy.
-- The current project's `.loop/` is the persistent workspace for Loop state and project-specific artifacts.
+Test-first is a project/policy-controlled behavior inside the execution flow; it is not a mandatory global phase.
 
-Loop MUST NOT write project plans, tasks, specs, or evidence into its own implementation directory.
+## Runtime model
+
+Loop is state-driven. The Agent must inspect the current persisted state before taking action.
+
+```text
+load state
+  ↓
+validate state + project context
+  ↓
+execute current phase
+  ↓
+check exit conditions
+  ↓
+record artifacts/evidence
+  ↓
+validate transition
+  ↓
+persist state
+```
+
+Every phase has:
+
+- Entry conditions
+- Allowed actions
+- Required artifacts/evidence
+- Exit conditions
+- Allowed transitions
+
+The Agent MUST NOT perform actions belonging to a later phase early merely because they seem useful.
+
+## Layer boundaries
+
+```text
+skills/loop/SKILL.md
+    ↓ Agent execution contract
+loop/config.yaml
+    ↓ generic policy and safety limits
+loop/schemas/state.yaml
+    ↓ state model and legal transitions
+loop/schemas/evidence.yaml
+    ↓ default evidence model
+<project>/.loop/
+    ↓ actual run state and artifacts
+```
+
+The generic Loop implementation lives in `loop/` and `skills/loop/`. It MUST NOT contain project-specific plans, tasks, specs, or evidence.
 
 ## Project context
 
-At `INIT`, the Agent identifies the current project root and loads the applicable project context, including project instructions, relevant skills, existing code, tests, documentation, and existing `.loop/` artifacts.
+At `INIT`, the Agent identifies the current project root and loads applicable project instructions, relevant skills, source code, tests, documentation, and existing `.loop/` artifacts.
 
-Project context is authoritative for the task's technical and domain content. Loop does not copy unrelated project rules into its generic implementation.
+Project context is authoritative for technical and domain decisions. Loop does not assume a language, framework, test runner, file naming convention, architecture, or verification tool.
 
 ## Project workspace
 
-All Loop artifacts belong to the current project and MUST be stored under `<project-root>/.loop/`.
+All run-specific artifacts belong under `<project-root>/.loop/`.
 
-If the project does not define its own `.loop/` convention, the default workspace is:
+Default structure when the project has no existing convention:
 
 ```text
 .loop/
@@ -52,72 +120,119 @@ If the project does not define its own `.loop/` convention, the default workspac
 └── evidence/
 ```
 
-Only create the workspace directories required by the current run. If the project already defines a `.loop/` structure, follow it instead of replacing it.
-
-Existing `.loop/` artifacts are persistent Loop context and should be inspected before creating conflicting work.
+Follow an existing project `.loop/` convention when one exists. Create only directories required by the current run.
 
 ### Artifact responsibilities
 
-- `state.yaml`: machine-readable current run state, active task, iteration, acceptance-criteria status, and Git baseline.
-- `plans/`: run-level Goal, Acceptance Criteria, plan, and relevant project context.
-- `tasks/`: actionable task breakdown and progress when persistent task records are needed.
+- `state.yaml`: machine-readable current run state, phase, task, counters, Acceptance Criteria, verification/review status, and Git baseline.
+- `plans/`: Goal, Acceptance Criteria, plan, and relevant project context.
+- `tasks/`: actionable task breakdown and progress when persistent task records are useful.
 - `specs/`: detailed design/specification artifacts when needed.
 - `evidence/`: verification and review evidence associated with Acceptance Criteria.
 
-Artifact content is project-specific. A plan for a NestJS project may contain NestJS details because those details come from the project; they are not part of the generic Loop protocol.
+## Phase contract
 
-## State and Git baseline
+The detailed phase execution contract is defined by `skills/loop/SKILL.md`.
 
-At `INIT`, create or update the current project's `.loop/state.yaml` according to the state schema in `loop/schemas/state.yaml` when the project does not provide a different convention.
+### INIT
 
-The state must track, at minimum, the current Loop status, iteration/fix counters, Goal, Acceptance Criteria, active phase/task, verification status, review status, and the Git baseline commit/branch captured at initialization.
+Load project context, inspect existing `.loop/` state, establish the Git baseline, and create or resume a valid run state.
 
-Before completion, capture the relevant Git diff against the baseline so Review can distinguish changes produced by the current Loop run from pre-existing changes.
+### GOAL_REVIEW
 
-## Two confirmation gates
+Define Goal, Acceptance Criteria, verification strategy, and high-level plan. Persist the plan when needed.
 
-### Goal Review
+### WAITING_FOR_GOAL_CONFIRMATION
 
-Before any code modification, Loop presents its understanding of the goal, proposed plan, and acceptance criteria. The user must explicitly confirm before implementation starts.
+Wait for explicit user approval. No implementation-file modifications are allowed.
 
-Until confirmation, Loop has no authorization to modify implementation files.
+### PLAN
 
-### Result Review
+Turn the confirmed Goal into actionable tasks, select relevant project skills, and finalize the verification approach.
 
-After all required acceptance criteria have passing evidence and review succeeds, Loop enters `READY_FOR_CONFIRMATION`. It must stop and ask the user whether to accept the result.
+### IMPLEMENT
 
-- Confirm → `DONE`
-- Reject with feedback → `FIX → IMPLEMENT → VERIFY → REVIEW → READY_FOR_CONFIRMATION`
+Execute the current task according to project context and applicable skills. Respect project-specific test-first rules.
 
-## Verification and test strategy
+### VERIFY
 
-Verification is required, but testing is only one possible verification method.
+Run the project's appropriate verification methods and persist meaningful Evidence. Testing is one possible verification method, not a universal requirement.
 
-For new features, feature changes, and bug fixes, follow the current project's verification conventions and the Loop test-first policy when it applies:
+### REVIEW
 
-1. Confirm the Goal.
-2. Define Acceptance Criteria and the appropriate verification strategy.
-3. If the project's conventions and Loop policy require test-first work, create or modify the appropriate test artifacts before implementation files.
-4. During a test-first phase, do not create or modify implementation files.
-5. Complete the test-first phase before implementation changes.
-6. Run the project's applicable verification commands and make the implementation satisfy the Acceptance Criteria.
+Review Acceptance Criteria, Evidence, project rules, implementation quality, and the Git diff from the baseline.
 
-Loop MUST NOT assume a specific test framework, test file naming convention, test directory, language, or test type. These are determined by the current project.
+### READY_FOR_CONFIRMATION
 
-Not every task requires automated tests. For documentation, configuration, tooling, design, or other tasks where tests are not applicable, use the project's appropriate verification method instead.
+Present the result and evidence. Wait for required user acceptance.
 
-Loop v1 does not require artificially creating an executable RED state when the implementation file does not exist. Do not create temporary Stub/Mock implementations merely to manufacture RED.
+### DONE
 
-## Evidence
+Terminal state. It requires all required Acceptance Criteria, passing applicable verification, passing Review, and required user acceptance.
 
-Each meaningful verification or review result should be recorded as structured Evidence associated with an Acceptance Criterion when applicable. Use `loop/schemas/evidence.yaml` as the default schema when the project does not define its own evidence format.
+### BLOCKED
 
-Failed verification evidence should be preserved when it is useful for later FIX iterations; do not overwrite the history of previous attempts.
+Terminal state for unsafe continuation, invalid state/context, or configured safety limits. Preserve the state and evidence so a later explicit `/loop` can diagnose the reason.
 
-## Completion
+## State transitions
 
-Agent claims are never sufficient for completion. Technical completion requires valid evidence for all required acceptance criteria, applicable verification, and review. Final `DONE` additionally requires explicit user acceptance when required by policy.
+Only transitions defined by `loop/schemas/state.yaml` are valid. The normal path is:
+
+`INIT → GOAL_REVIEW → WAITING_FOR_GOAL_CONFIRMATION → PLAN → IMPLEMENT → VERIFY → REVIEW → READY_FOR_CONFIRMATION → DONE`
+
+Failure paths are:
+
+- `VERIFY → FIX → IMPLEMENT`
+- `REVIEW → FIX → IMPLEMENT`
+- `READY_FOR_CONFIRMATION → FIX → IMPLEMENT` after user rejection with actionable feedback
+
+Any active state may transition to `BLOCKED` when safe continuation is impossible or a configured limit is reached.
+
+Never skip a confirmation gate or jump directly to `DONE`.
+
+## Resume
+
+If `.loop/state.yaml` contains a non-terminal active run:
+
+1. Load and validate the state.
+2. Validate the current project root and Git branch against recorded context.
+3. Read referenced plan/task/spec/evidence artifacts.
+4. Resume only from the persisted phase.
+5. Preserve run identity and counters.
+6. Enter `BLOCKED` instead of guessing when state or repository context is inconsistent.
+
+Chat history is not a substitute for persisted Loop state.
+
+## Git baseline
+
+Capture branch and baseline commit at `INIT`. A dirty baseline does not automatically block a run; it is recorded so pre-existing changes can be distinguished from Loop changes.
+
+Before completion, inspect the diff against the baseline. Loop does not automatically commit or push unless explicit project policy and user authorization permit it.
+
+## Verification and Evidence
+
+Verification is mandatory; automated testing is optional when inappropriate.
+
+Follow project-native verification conventions. Possible methods include tests, builds, type checks, lint/static analysis, documentation checks, configuration validation, manual checks, or other project-defined validation.
+
+Evidence should connect:
+
+```text
+Acceptance Criterion
+        ↓
+Verification / Review
+        ↓
+Evidence
+        ↓
+Completion decision
+```
+
+An Agent's claim that something works is not sufficient Evidence. Failed Evidence should be preserved when relevant to later FIX iterations.
+
+## Safety
+
+Honor `loop/config.yaml` limits for iterations, fix attempts, and repeated failures. When a limit is reached, preserve the latest evidence and enter `BLOCKED` rather than continuing indefinitely.
 
 ## Business agnostic
 
-Loop is business-agnostic: business requirements belong to the current project/task, not to this directory.
+Business requirements and project-specific implementation details belong to the current project/task, not to the generic Loop implementation.
