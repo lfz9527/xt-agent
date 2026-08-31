@@ -1,0 +1,21 @@
+version: 1
+
+rules:
+  - id: no-console-log
+    name: 禁止生产代码使用 console.log
+    pattern: '\\bconsole\\.log\\s*\\('
+    files:
+      - '**/*.ts'
+      - '**/*.tsx'
+    priority: P2
+    message: 生产代码中不应直接使用 console.log
+    enabled: true
+
+  - id: hardcoded-secret
+    name: 检查疑似硬编码敏感信息
+    pattern: '(password|passwd|secret|api[_-]?key)\\s*[:=]\\s*["''][^"'']+["'']'
+    files:
+      - '**/*.{ts,tsx,js,jsx,py,go,java}'
+    priority: P1
+    message: 疑似存在硬编码敏感信息，需要人工确认
+    enabled: true
