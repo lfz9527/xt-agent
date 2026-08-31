@@ -1,0 +1,28 @@
+version: 1
+framework: react
+rules:
+  - id: hooks-rules
+    name: 检查 Hooks 使用规则
+    type: correctness
+    priority: P1
+    enabled: true
+  - id: effect-dependencies
+    name: 检查 Effect 依赖和副作用
+    type: correctness
+    priority: P1
+    enabled: true
+  - id: component-responsibility
+    name: 检查组件职责是否过重
+    type: architecture
+    priority: P2
+    enabled: true
+  - id: duplicate-components
+    name: 检查重复组件与可复用能力
+    type: duplication
+    priority: P2
+    enabled: true
+  - id: render-performance
+    name: 检查明显的重复渲染与性能问题
+    type: performance
+    priority: P2
+    enabled: true
