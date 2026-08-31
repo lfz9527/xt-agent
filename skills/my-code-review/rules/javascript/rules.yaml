@@ -1,0 +1,23 @@
+version: 1
+language: javascript
+rules:
+  - id: promise-handling
+    name: 检查 Promise 是否被正确处理
+    type: correctness
+    priority: P1
+    enabled: true
+  - id: async-error-propagation
+    name: 检查异步异常传播
+    type: error-handling
+    priority: P1
+    enabled: true
+  - id: runtime-type-risk
+    name: 检查运行时类型风险
+    type: correctness
+    priority: P2
+    enabled: true
+  - id: unsafe-dynamic-access
+    name: 检查不安全的动态属性访问
+    type: safety
+    priority: P2
+    enabled: true
