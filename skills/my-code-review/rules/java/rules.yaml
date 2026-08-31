@@ -1,0 +1,28 @@
+version: 1
+language: java
+rules:
+  - id: exception-handling
+    name: 检查异常处理与异常传播
+    type: error-handling
+    priority: P1
+    enabled: true
+  - id: resource-management
+    name: 检查资源是否正确关闭
+    type: resource-management
+    priority: P1
+    enabled: true
+  - id: thread-safety
+    name: 检查共享状态与线程安全
+    type: concurrency
+    priority: P1
+    enabled: true
+  - id: nullability
+    name: 检查潜在空指针风险
+    type: correctness
+    priority: P1
+    enabled: true
+  - id: unnecessary-boxing
+    name: 检查不必要的装箱与对象创建
+    type: performance
+    priority: P2
+    enabled: true
