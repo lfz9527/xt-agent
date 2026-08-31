@@ -15,3 +15,18 @@ rules:
     type: duplication
     priority: P2
     enabled: true
+  - id: finding-uniqueness
+    name: 同一个问题只能产生一个 Finding
+    type: review
+    priority: P2
+    enabled: true
+  - id: uncertainty-confidence
+    name: 不确定问题必须降低结论强度并提供 Confidence
+    type: review
+    priority: P2
+    enabled: true
+  - id: verification-from-project
+    name: 验证命令必须来自项目实际配置或工具链
+    type: verification
+    priority: P1
+    enabled: true
