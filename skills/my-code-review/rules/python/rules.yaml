@@ -1,0 +1,23 @@
+version: 1
+language: python
+rules:
+  - id: exception-handling
+    name: 检查异常处理是否合理
+    type: error-handling
+    priority: P1
+    enabled: true
+  - id: mutable-default-arguments
+    name: 避免可变默认参数
+    type: correctness
+    priority: P1
+    enabled: true
+  - id: resource-management
+    name: 检查资源是否正确释放
+    type: resource-management
+    priority: P1
+    enabled: true
+  - id: type-hints
+    name: 检查关键接口类型提示
+    type: maintainability
+    priority: P2
+    enabled: true
