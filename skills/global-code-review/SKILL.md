@@ -28,7 +28,7 @@ Global Review 不只是重新审查 diff，而是判断变化后的项目整体�
 
 ## Preflight
 
-识别项目语言、框架、Runtime，并加载 `code-review-rules/` 下对应规则。项目级 Review 配置存在时一并加载。
+识别项目语言、框架、Runtime，并加载 `../code-review-rules/` 下对应规则。项目级 Review 配置存在时一并加载。
 
 ## 核心检查
 

@@ -26,7 +26,7 @@ Changed Files
 
 ## Preflight
 
-先识别项目语言、框架、Runtime，并加载 `code-review-rules/` 下对应的 Universal、Language、Framework 规则。项目根目录存在 `code-review.yaml`、`code-review.rules.yaml` 或 `code-review.regex.yaml` 时一并加载。
+先识别项目语言、框架、Runtime，并加载 `../code-review-rules/` 下对应的 Universal、Language、Framework 规则。项目根目录存在 `code-review.yaml`、`code-review.rules.yaml` 或 `code-review.regex.yaml` 时一并加载。
 
 ## 检查重点
 

@@ -28,7 +28,7 @@
 
 ## Preflight
 
-识别语言、框架、Runtime、构建系统和测试能力，并加载 `code-review-rules/` 对应规则及项目级配置。
+识别语言、框架、Runtime、构建系统和测试能力，并加载 `../code-review-rules/` 对应规则及项目级配置。
 
 ## 核心检查
 
