@@ -1,0 +1,23 @@
+version: 1
+language: typescript
+rules:
+  - id: avoid-unnecessary-any
+    name: 避免不必要的 any
+    type: type-safety
+    priority: P2
+    enabled: true
+  - id: async-error-propagation
+    name: 检查异步异常传播
+    type: error-handling
+    priority: P1
+    enabled: true
+  - id: promise-handling
+    name: 检查 Promise 是否被正确处理
+    type: correctness
+    priority: P1
+    enabled: true
+  - id: unsafe-type-assertion
+    name: 检查不安全的类型断言
+    type: type-safety
+    priority: P2
+    enabled: true

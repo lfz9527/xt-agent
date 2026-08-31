@@ -1,0 +1,53 @@
+version: 1
+framework: electron
+rules:
+  - id: process-boundary
+    name: 检查 Main / Preload / Renderer 进程边界
+    type: architecture
+    priority: P1
+    enabled: true
+  - id: ipc-input-validation
+    name: 检查 IPC 输入校验与信任边界
+    type: security
+    priority: P1
+    enabled: true
+  - id: electron-security-config
+    name: 检查 Electron 安全配置
+    type: security
+    priority: P1
+    enabled: true
+  - id: preload-minimal-api
+    name: Preload 暴露 API 应遵循最小权限原则
+    type: security
+    priority: P1
+    enabled: true
+  - id: renderer-node-access
+    name: 检查 Renderer 是否存在不安全的 Node / Electron 能力访问
+    type: security
+    priority: P1
+    enabled: true
+  - id: external-navigation
+    name: 检查外部 URL、导航和新窗口安全
+    type: security
+    priority: P1
+    enabled: true
+  - id: ipc-lifecycle
+    name: 检查 IPC 与事件监听生命周期
+    type: correctness
+    priority: P2
+    enabled: true
+  - id: window-lifecycle
+    name: 检查 BrowserWindow 生命周期与资源释放
+    type: resource-management
+    priority: P2
+    enabled: true
+  - id: native-module-compatibility
+    name: 检查原生模块与 Electron 版本兼容性
+    type: build
+    priority: P2
+    enabled: true
+  - id: duplicate-electron-capability
+    name: 检查重复 IPC、Preload API、窗口管理和 Electron 工具函数
+    type: duplication
+    priority: P2
+    enabled: true

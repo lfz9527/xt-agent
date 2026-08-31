@@ -1,0 +1,28 @@
+version: 1
+framework: nestjs
+rules:
+  - id: controller-service-boundary
+    name: Controller 不应承载业务逻辑
+    type: architecture
+    priority: P1
+    enabled: true
+  - id: dependency-injection
+    name: 检查依赖注入与 Provider 生命周期
+    type: architecture
+    priority: P1
+    enabled: true
+  - id: dto-validation
+    name: 检查 DTO 与输入校验
+    type: security
+    priority: P1
+    enabled: true
+  - id: module-boundary
+    name: 检查 Module 边界和循环依赖
+    type: architecture
+    priority: P1
+    enabled: true
+  - id: duplicate-provider-logic
+    name: 检查重复 Provider 与业务能力
+    type: duplication
+    priority: P2
+    enabled: true
