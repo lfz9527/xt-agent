@@ -1,0 +1,23 @@
+version: 1
+language: go
+rules:
+  - id: unchecked-error
+    name: 检查未处理的 error
+    type: error-handling
+    priority: P1
+    enabled: true
+  - id: goroutine-lifecycle
+    name: 检查 goroutine 生命周期
+    type: concurrency
+    priority: P1
+    enabled: true
+  - id: context-propagation
+    name: 检查 context 是否正确传递
+    type: concurrency
+    priority: P1
+    enabled: true
+  - id: defer-resource-release
+    name: 检查 defer 与资源释放
+    type: resource-management
+    priority: P2
+    enabled: true
