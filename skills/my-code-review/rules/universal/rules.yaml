@@ -1,0 +1,17 @@
+version: 1
+rules:
+  - id: evidence-required
+    name: 高优先级问题必须有证据
+    type: review
+    priority: P1
+    enabled: true
+  - id: avoid-style-preference
+    name: 不得将个人代码风格偏好作为高优先级问题
+    type: review
+    priority: P3
+    enabled: true
+  - id: detect-duplication
+    name: 检查重复能力
+    type: duplication
+    priority: P2
+    enabled: true
