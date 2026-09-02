@@ -4,7 +4,8 @@ import { canResume } from './enforcement';
 import type { PolicySnapshot, RuntimeFacts } from './enforcement';
 import type { GitBaseline } from './git-consistency';
 import type { LoopRuntimeState, StateStore } from './kernel';
-import type { RunArtifactStore } from './artifact-store';
+import { RunArtifactStore } from './artifact-store';
+import type { RunArtifactStore as RunArtifactStoreType } from './artifact-store';
 
 export interface RunRuntimePolicySource {
   currentRevision(): number;
@@ -12,10 +13,12 @@ export interface RunRuntimePolicySource {
 }
 
 export interface RunRuntimeOptions {
+  /** Absolute `.loop` workspace resolved from the project root. */
+  workspace?: string;
   gitCwd?: string;
   createRunId?: () => string;
   initialFacts?: Partial<RuntimeFacts>;
-  artifactStore?: RunArtifactStore;
+  artifactStore?: RunArtifactStoreType;
 }
 
 const defaultFacts = (): RuntimeFacts => ({
@@ -40,13 +43,20 @@ const defaultFacts = (): RuntimeFacts => ({
 /**
  * P2 Run Runtime：统一负责 Run 的创建、暂停、恢复和完成状态持久化。
  * 具体 Capability、Resource Mutation 和 Transition Enforcement 仍由 Kernel 执行。
+ *
+ * Production wiring must pass the canonical project `.loop` workspace. This keeps
+ * default file-backed artifacts on the same project boundary as StateStore/AuditLog.
  */
 export class RunRuntime {
+  private readonly artifactStore?: RunArtifactStoreType;
+
   constructor(
     private readonly stateStoreFactory: (runId: string) => StateStore,
     private readonly policy: RunRuntimePolicySource,
     private readonly options: RunRuntimeOptions = {},
-  ) {}
+  ) {
+    this.artifactStore = options.artifactStore ?? (options.workspace ? new RunArtifactStore({ workspace: options.workspace }) : undefined);
+  }
 
   createRun(): LoopRuntimeState {
     const runId = this.options.createRunId?.() ?? randomUUID();
@@ -80,9 +90,9 @@ export class RunRuntime {
 
   /** 将 Plan 写入当前 Run 的 Artifact Workspace，并同步 State Guard 所需事实。 */
   writePlan(runId: string, content: string): LoopRuntimeState {
-    if (!this.options.artifactStore) throw new Error('[LOOP_BLOCKED] artifact store is required');
+    if (!this.artifactStore) throw new Error('[LOOP_BLOCKED] artifact store is required');
     const state = this.loadRun(runId);
-    this.options.artifactStore.writePlan(runId, content);
+    this.artifactStore.writePlan(runId, content);
     const next = { ...state, facts: { ...state.facts, planArtifactExists: true } };
     this.stateStoreFactory(runId).write(next);
     return next;

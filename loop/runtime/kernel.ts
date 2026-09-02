@@ -1,6 +1,6 @@
 import { enforceCapability, enforceTransition, type EnforcementContext, type EnforcementResult, type PolicySnapshot, type RuntimeFacts, type TransitionGuardContext } from './enforcement';
 import { evaluateResourceMutation, type RuntimeResourcePolicy } from './resource-policy';
-import { createRuntimeEventId, type MutationJournal, type RuntimeAuditLog } from './persistence';
+import { createRuntimeEventId, JsonlMutationJournal, JsonlRuntimeAuditLog, type MutationJournal, type RuntimeAuditLog } from './persistence';
 import { RuntimeResourceLock } from './lock';
 import { verifyGitBaseline } from './git-consistency';
 import type { GitBaseline } from './git-consistency';
@@ -13,17 +13,38 @@ export interface CapabilityExecutor<T> { execute(): Promise<T>; }
 export interface ApprovalProvider { request(input: { runId: string; capability: string; reason: string }): Promise<'approved' | 'rejected'>; }
 export interface ResourceMutationExecutor<T> { execute(): Promise<T>; }
 
+export interface LoopRuntimeKernelOptions {
+  /** Absolute `.loop` workspace resolved from the project root. */
+  workspace?: string;
+  mutationJournalFactory?: (runId: string) => MutationJournal;
+}
+
 export class LoopRuntimeKernel {
+  private readonly audit?: RuntimeAuditLog;
+  private readonly resourceLock?: RuntimeResourceLock;
+  private readonly mutationJournal?: MutationJournal;
+  private readonly mutationJournalFactory?: (runId: string) => MutationJournal;
+  private readonly gitCwd: string;
+  private readonly auditTimeline?: RunAuditTimeline;
+
   constructor(
     private readonly stateStore: StateStore,
     private readonly policy: PolicyRevisionSource,
     private readonly approval?: ApprovalProvider,
-    private readonly audit?: RuntimeAuditLog,
-    private readonly resourceLock?: RuntimeResourceLock,
-    private readonly mutationJournal?: MutationJournal,
-    private readonly gitCwd: string = '.',
-    private readonly auditTimeline?: RunAuditTimeline,
-  ) {}
+    audit?: RuntimeAuditLog,
+    resourceLock?: RuntimeResourceLock,
+    mutationJournal?: MutationJournal,
+    gitCwd: string = '.',
+    auditTimeline?: RunAuditTimeline,
+    options: LoopRuntimeKernelOptions = {},
+  ) {
+    this.audit = audit ?? (options.workspace ? new JsonlRuntimeAuditLog(options.workspace) : undefined);
+    this.resourceLock = resourceLock;
+    this.mutationJournal = mutationJournal;
+    this.mutationJournalFactory = options.mutationJournalFactory ?? (options.workspace ? (runId) => new JsonlMutationJournal(options.workspace!, runId) : undefined);
+    this.gitCwd = gitCwd;
+    this.auditTimeline = auditTimeline;
+  }
 
   async executeCapability<T>(input: Omit<EnforcementContext, 'runId' | 'policyRevision' | 'currentPolicyRevision' | 'snapshot' | 'approvalDecision'> & { approvalDecision?: EnforcementContext['approvalDecision'] }, executor: CapabilityExecutor<T>): Promise<T> {
     const state = this.stateStore.read(); const currentRevision = this.policy.currentRevision(); let approvalDecision = input.approvalDecision ?? 'required';
@@ -43,7 +64,8 @@ export class LoopRuntimeKernel {
     const state = this.stateStore.read(); const decision = evaluateResourceMutation({ policy: resourcePolicy, capability, path });
     if (!decision.allowed) { this.blocked(state, decision.reason); throw new Error(`[LOOP_DENY] ${decision.reason}`); }
     if (!state.gitBaseline || state.expectedWorktreeFingerprint === undefined) { this.blocked(state, 'git baseline and expected worktree state are required for mutation'); throw new Error('[LOOP_BLOCKED] git baseline and expected worktree state are required for mutation'); }
-    if (!this.mutationJournal) { this.blocked(state, 'mutation journal is required for mutation'); throw new Error('[LOOP_BLOCKED] mutation journal is required for mutation'); }
+    const mutationJournal = this.mutationJournal ?? this.mutationJournalFactory?.(state.runId);
+    if (!mutationJournal) { this.blocked(state, 'mutation journal is required for mutation'); throw new Error('[LOOP_BLOCKED] mutation journal is required for mutation'); }
     const before = verifyGitBaseline(this.gitCwd, state.gitBaseline, state.expectedWorktreeFingerprint);
     if (!before.consistent) { this.blocked(state, before.reason); throw new Error(`[LOOP_BLOCKED] ${before.reason}`); }
     if (!this.resourceLock) { this.blocked(state, `resource lock is required for mutation: ${path}`); throw new Error('[LOOP_BLOCKED] resource lock is required for mutation'); }
@@ -52,12 +74,12 @@ export class LoopRuntimeKernel {
       this.resourceLock.assertOwned(path, state.runId); const result = await executor.execute(); const after = verifyGitBaseline(this.gitCwd, state.gitBaseline);
       if (!after.consistent) { this.blocked(state, after.reason); throw new Error(`[LOOP_BLOCKED] ${after.reason}`); }
       const entry = { mutationId: createRuntimeEventId('mutation'), runId: state.runId, resource: path, capability, at: new Date().toISOString(), beforeWorktreeFingerprint: before.current.worktreeFingerprint, afterWorktreeFingerprint: after.current.worktreeFingerprint, result: 'committed' as const };
-      this.mutationJournal.append(entry); if (this.auditTimeline) this.auditTimeline.mutation(entry, state.policyRevision); else this.audit?.append({ eventId: createRuntimeEventId('mutation'), runId: state.runId, type: 'RESOURCE_MUTATION', at: new Date().toISOString(), policyRevision: state.policyRevision, payload: { resource: path, capability, before: before.current.worktreeFingerprint, after: after.current.worktreeFingerprint } });
+      mutationJournal.append(entry); if (this.auditTimeline) this.auditTimeline.mutation(entry, state.policyRevision); else this.audit?.append({ eventId: createRuntimeEventId('mutation'), runId: state.runId, type: 'RESOURCE_MUTATION', at: new Date().toISOString(), policyRevision: state.policyRevision, payload: { resource: path, capability, before: before.current.worktreeFingerprint, after: after.current.worktreeFingerprint } });
       this.stateStore.write({ ...state, expectedWorktreeFingerprint: after.current.worktreeFingerprint }); return result;
     } catch (error) {
       let current = before.current.worktreeFingerprint; try { current = verifyGitBaseline(this.gitCwd, state.gitBaseline).current.worktreeFingerprint; } catch { /* Git may be unavailable after failure. */ }
       const entry = { mutationId: createRuntimeEventId('mutation'), runId: state.runId, resource: path, capability, at: new Date().toISOString(), beforeWorktreeFingerprint: before.current.worktreeFingerprint, afterWorktreeFingerprint: current, result: 'failed' as const };
-      this.mutationJournal.append(entry); if (this.auditTimeline) this.auditTimeline.mutation(entry, state.policyRevision);
+      mutationJournal.append(entry); if (this.auditTimeline) this.auditTimeline.mutation(entry, state.policyRevision);
       throw error;
     } finally { this.resourceLock.release(path, state.runId); }
   }

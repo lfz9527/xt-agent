@@ -27,30 +27,34 @@ const state = (status: string, runId = 'run-1') => ({
 });
 
 describe('RunService', () => {
-  it('creates a run and delegates execution to ExecutionRuntime', async () => {
+  it('initializes the project workspace before creating a run', async () => {
     const created = state('INIT');
     const completed = state('WAITING_FOR_GOAL_CONFIRMATION');
     const runtime = { createRun: vi.fn(() => created) };
     const execution = { runUntilHalt: vi.fn(async () => completed) };
     const kernel = { transition: vi.fn() };
+    const workspace = { ensure: vi.fn() };
 
-    const result = await new RunService({ runtime: runtime as never, execution, kernel }).run();
+    const result = await new RunService({ runtime: runtime as never, execution, kernel, workspace }).run();
 
+    expect(workspace.ensure).toHaveBeenCalledOnce();
     expect(runtime.createRun).toHaveBeenCalledOnce();
     expect(execution.runUntilHalt).toHaveBeenCalledWith('run-1');
     expect(result).toBe(completed);
   });
 
-  it('resumes through the persisted target status before execution', async () => {
+  it('resumes through the persisted target status after ensuring the workspace', async () => {
     const paused = state('PAUSED');
     const resumed = { ...paused, facts: { ...paused.facts, resumeRequested: true } };
     const completed = state('VERIFY');
     const runtime = { resume: vi.fn(() => resumed) };
     const execution = { runUntilHalt: vi.fn(async () => completed) };
     const kernel = { transition: vi.fn() };
+    const workspace = { ensure: vi.fn() };
 
-    const result = await new RunService({ runtime: runtime as never, execution, kernel }).resume('run-1');
+    const result = await new RunService({ runtime: runtime as never, execution, kernel, workspace }).resume('run-1');
 
+    expect(workspace.ensure).toHaveBeenCalledOnce();
     expect(runtime.resume).toHaveBeenCalledWith('run-1');
     expect(kernel.transition).toHaveBeenCalledWith('VERIFY');
     expect(execution.runUntilHalt).toHaveBeenCalledWith('run-1');
