@@ -8,11 +8,8 @@ run:
   id: <unique-run-id>
   # 当前状态机状态。
   status: INIT
-  # 当前迭代次数。
   iteration: 0
-  # 当前 FIX 次数。
   fixAttempts: 0
-  # 当前连续重复失败次数。
   sameFailureCount: 0
 
 context:
@@ -26,9 +23,7 @@ context:
   expectedWorktreeFingerprint: <git-status-fingerprint>
 
 request:
-  # 本次运行的用户目标。
   goal: <goal>
-  # 用户目标对应的验收标准。
   acceptanceCriteria: []
 
 policy:
@@ -38,190 +33,129 @@ policy:
   snapshot: .loop/runtime/runs/<run-id>/policy-snapshot.yaml
 
 plan:
-  # 当前计划产物在项目 `.loop/plans/` 中的规范引用。
   artifact: .loop/plans/<run-id>.md
 
 specs:
-  # 当前运行关联的 Spec / PECS 产物引用。
   artifacts: []
 
 audit:
-  # 本次 Run 的状态变化、审批和阻断事件统一写入项目级 append-only 日志。
+  # 所有 Run 共用项目级 append-only 审计日志。
   history: .loop/runtime/history.jsonl
 
 active:
-  # 当前正在处理的任务。
   task: null
-  # 当前 Loop 阶段。
   phase: INIT
 
 facts:
-  # Guard 只能引用这里定义的 Runtime Facts；禁止引用未建模的隐式字段。
-  implementation:
-    completed: false
-  acceptanceCriteria:
-    allPassed: false
-  verification:
-    status: pending
-  review:
-    status: pending
-  approval:
-    beforeExecution: required
-    beforeFinalize: required
-  resume:
-    requested: false
-    stateValid: false
-  pause:
-    reason: null
-    expired: false
-  fix:
-    attemptsWithinLimit: true
-  plan:
-    artifactExists: false
-  git:
-    baselineConsistent: true
-    expectedWorktreeState: clean
-    mutationJournal: .loop/runtime/runs/<run-id>/mutations.jsonl
+  # Runtime 实际持久化的事实；State Guard 只能读取这些字段。
+  executionApprovalSatisfied: false
+  planArtifactExists: false
+  implementationCompleted: false
+  verificationPassed: false
+  verificationFailed: false
+  reviewPassed: false
+  reviewFailed: false
+  acceptancePassed: false
+  finalApprovalSatisfied: false
+  finalApprovalRejected: false
+  fixAttemptsWithinLimit: true
+  resumeRequested: false
+  resumeStateValid: false
+  pauseExpired: false
 
 criteria:
-  # 每个验收标准的 Runtime 执行状态。
   items: []
 
 verification:
-  # 当前 Verification 状态。
   status: pending
-  # 当前运行关联的 Evidence ID。
   evidence: []
 
 review:
-  # 当前 Review 状态。
   status: pending
 
 approval:
-  # 只记录实际发生的审批事件。
-  # 它不是项目 Trust 或 Permission 的配置来源。
   history: []
+
+git:
+  # Runtime State 中持久化 Run 的 Git 基线与当前预期状态。
+  baseline: <git-baseline>
+  expectedWorktreeFingerprint: <git-status-fingerprint>
+  mutationJournal: .loop/runtime/runs/<run-id>/mutation-journal.jsonl
 
 updatedAt: <timestamp>
 
-# 状态转移除了 allowedNext 外，还必须满足 guard。
-# Runtime 不得仅凭合法状态名称跳过 Gate、Verification 或 Review。
 stateRules:
   requireTransitionGuards: true
-
   INIT:
     allowedNext: [GOAL_REVIEW, BLOCKED]
-
   GOAL_REVIEW:
     allowedNext: [WAITING_FOR_GOAL_CONFIRMATION, BLOCKED]
-
   WAITING_FOR_GOAL_CONFIRMATION:
     allowedNext: [PLAN, BLOCKED, PAUSED]
     guards:
       PLAN:
-        - approval.beforeExecution == approved
+        - executionApprovalSatisfied == true
         - policy.policyRevision == currentPolicyRevision
-      PAUSED:
-        - pause.reason in [approval_required, external_dependency, user_requested_pause]
-
   PLAN:
     allowedNext: [IMPLEMENT, BLOCKED, PAUSED]
     guards:
       IMPLEMENT:
-        - plan.artifact exists
-      PAUSED:
-        - pause.reason in [approval_required, external_dependency, user_requested_pause]
-
+        - planArtifactExists == true
   IMPLEMENT:
     allowedNext: [VERIFY, BLOCKED, PAUSED]
     guards:
       VERIFY:
-        - implementation.completed == true
-      PAUSED:
-        - pause.reason in [approval_required, external_dependency, user_requested_pause]
-
+        - implementationCompleted == true
   VERIFY:
     allowedNext: [REVIEW, FIX, BLOCKED, PAUSED]
     guards:
       REVIEW:
-        - verification.status == passed
+        - verificationPassed == true
       FIX:
-        - verification.status == failed
-      PAUSED:
-        - pause.reason in [approval_required, external_dependency, user_requested_pause]
-
+        - verificationFailed == true
   REVIEW:
     allowedNext: [READY_FOR_CONFIRMATION, FIX, BLOCKED, PAUSED]
     guards:
       READY_FOR_CONFIRMATION:
-        - review.status == passed
+        - reviewPassed == true
       FIX:
-        - review.status == failed
-      PAUSED:
-        - pause.reason in [approval_required, external_dependency, user_requested_pause]
-
+        - reviewFailed == true
   READY_FOR_CONFIRMATION:
     allowedNext: [DONE, FIX, BLOCKED, PAUSED]
     guards:
       DONE:
-        - acceptanceCriteria.allPassed == true
-        - verification.status == passed
-        - review.status == passed
-        - approval.beforeFinalize in [approved, automatic]
-        - policy.policyRevision == currentPolicyRevision
+        - acceptancePassed == true
+        - verificationPassed == true
+        - reviewPassed == true
+        - finalApprovalSatisfied == true
       FIX:
-        - approval.beforeFinalize == rejected
-      PAUSED:
-        - pause.reason in [approval_required, external_dependency, user_requested_pause]
-
+        - finalApprovalRejected == true
   FIX:
     allowedNext: [IMPLEMENT, BLOCKED, PAUSED]
     guards:
       IMPLEMENT:
-        - fixAttempts <= maxFixAttempts
-      PAUSED:
-        - pause.reason in [approval_required, external_dependency, user_requested_pause]
-
+        - fixAttemptsWithinLimit == true
   PAUSED:
     allowedNext: [WAITING_FOR_GOAL_CONFIRMATION, PLAN, IMPLEMENT, VERIFY, REVIEW, READY_FOR_CONFIRMATION, FIX, BLOCKED]
     guards:
-      WAITING_FOR_GOAL_CONFIRMATION:
-        - resumeRequested == true
-        - resumeStateValid == true
-      PLAN:
-        - resumeRequested == true
-        - resumeStateValid == true
-      IMPLEMENT:
-        - resumeRequested == true
-        - resumeStateValid == true
-      VERIFY:
-        - resumeRequested == true
-        - resumeStateValid == true
-      REVIEW:
-        - resumeRequested == true
-        - resumeStateValid == true
-      READY_FOR_CONFIRMATION:
-        - resumeRequested == true
-        - resumeStateValid == true
-      FIX:
-        - resumeRequested == true
-        - resumeStateValid == true
-      BLOCKED:
-        - pauseExpired == true
-
+      WAITING_FOR_GOAL_CONFIRMATION: [- resumeRequested == true, - resumeStateValid == true]
+      PLAN: [- resumeRequested == true, - resumeStateValid == true]
+      IMPLEMENT: [- resumeRequested == true, - resumeStateValid == true]
+      VERIFY: [- resumeRequested == true, - resumeStateValid == true]
+      REVIEW: [- resumeRequested == true, - resumeStateValid == true]
+      READY_FOR_CONFIRMATION: [- resumeRequested == true, - resumeStateValid == true]
+      FIX: [- resumeRequested == true, - resumeStateValid == true]
+      BLOCKED: [- pauseExpired == true]
   DONE:
     allowedNext: []
-
   BLOCKED:
     allowedNext: []
 
-# PAUSED 是可恢复等待态；恢复必须由 Runtime 校验原状态、Policy Revision 和产物完整性。
 paused:
   terminal: false
   resumeInPlace: true
   reasons: [approval_required, external_dependency, user_requested_pause]
 
-# BLOCKED 是安全终止态，不允许原地 Resume。
 blocked:
   terminal: true
   resumeInPlace: false
