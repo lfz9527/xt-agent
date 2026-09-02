@@ -19,7 +19,7 @@ describe('StageRegistry', () => {
   it('registers every executable runtime status exactly once', () => {
     const registry = new StageRegistry();
     expect(allStatuses.every((status) => registry.has(status))).toBe(true);
-    expect(registry.resolve('INIT')).toBe('GOAL_REVIEW';
+    expect(registry.resolve('INIT')).toBe('GOAL_REVIEW');
     expect(registry.resolve('GOAL_REVIEW')).toBe('GOAL_REVIEW');
     expect(registry.resolve('FIX')).toBe('FIX');
     expect(registry.resolve('READY_FOR_CONFIRMATION')).toBe('READY_FOR_CONFIRMATION');
