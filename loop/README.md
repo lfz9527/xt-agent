@@ -23,6 +23,8 @@ ProjectLoopWorkspaceInitializer.ensure()
   ↓
 Create / Restore <project-root>/.loop/
   ↓
+Create ProjectLoopRuntimeWorkspace
+  ↓
 RunService.run()
   ↓
 RunRuntime.createRun()
@@ -38,6 +40,8 @@ Loop Lifecycle
 ├── config.yaml
 ├── runtime/
 │   ├── runs/<run-id>/state.yaml
+│   ├── runs/<run-id>/checkpoint.json
+│   ├── runs/<run-id>/mutation-journal.jsonl
 │   ├── history.jsonl
 │   └── locks/<resource>.lock
 ├── plans/<run-id>.md
@@ -47,6 +51,34 @@ Loop Lifecycle
 ```
 
 `.loop/` 是项目级唯一 Loop 工作区。不同项目之间不得共享 Loop 产物。
+
+## Project Root → Runtime Persistence
+
+Project Root 一旦解析完成，整个 Runtime 必须使用同一个绝对 `.loop` workspace。所有文件型持久化组件都从这个 workspace wiring 创建，不允许组件自行以 `process.cwd()` 解析 `.loop`。
+
+```text
+ProjectLoopWorkspaceInitializer.ensure()
+                ↓
+       ProjectLoopWorkspace
+                ↓
+     ProjectLoopRuntimeWorkspace
+       ↙       ↓       ↘
+ StateStore  ArtifactStore  AuditLog
+       ↓          ↓            ↓
+ .loop/runtime  .loop/*     .loop/runtime/history.jsonl
+```
+
+`ProjectLoopRuntimeWorkspace` 统一创建：
+
+| Runtime 组件 | 落盘位置 |
+|---|---|
+| StateStore | `.loop/runtime/runs/<run-id>/state.yaml` |
+| ArtifactStore | `.loop/plans/`、`.loop/specs/`、`.loop/evidence/`、`.loop/reviews/` |
+| AuditLog | `.loop/runtime/history.jsonl` |
+| MutationJournal | `.loop/runtime/runs/<run-id>/mutation-journal.jsonl` |
+| CheckpointStore | `.loop/runtime/runs/<run-id>/checkpoint.json` |
+
+`RunRuntime`、`ExecutionRuntime`、`LoopRuntimeKernel` 使用这些文件型组件时必须共享同一个 workspace。这样即使从 Git repository 子目录启动 `/loop`，所有 Runtime 产物仍然落在 repository root 下的唯一 `.loop/`。
 
 ## P2-11 Run Event / Observer API
 
@@ -102,6 +134,7 @@ P2-12 不增加新的状态机，而是把已有 Runtime 边界收紧到可以�
 - 崩溃恢复会识别遗留临时文件；存在多个临时文件时只恢复最新候选并清理旧候选。
 - Mutation Journal 的写入必须与其 Run 存储边界一致，禁止跨 Run 写入。
 - `.loop/runtime/history.jsonl` 仍是 Runtime Audit 的唯一事实源；Replay Report 只是派生结果。
+- StateStore、ArtifactStore、AuditLog、MutationJournal、CheckpointStore 必须共享同一个 Project Root 解析出的 `.loop` workspace；禁止组件自行基于 `cwd` 选择落盘目录。
 
 ### Observer
 
