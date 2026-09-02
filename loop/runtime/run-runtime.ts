@@ -33,6 +33,7 @@ const defaultFacts = (): RuntimeFacts => ({
   fixAttemptsWithinLimit: true,
   resumeRequested: false,
   resumeStateValid: false,
+  pausedFromStatus: null,
   pauseExpired: false,
 });
 
@@ -89,10 +90,19 @@ export class RunRuntime {
 
   pause(runId: string): LoopRuntimeState {
     const state = this.loadRun(runId);
-    if (state.status === 'DONE' || state.status === 'BLOCKED') {
+    if (state.status === 'DONE' || state.status === 'BLOCKED' || state.status === 'PAUSED') {
       throw new Error(`[LOOP_BLOCKED] run in ${state.status} cannot be paused`);
     }
-    const next = { ...state, status: 'PAUSED', facts: { ...state.facts, resumeRequested: false, resumeStateValid: true } };
+    const next = {
+      ...state,
+      status: 'PAUSED',
+      facts: {
+        ...state.facts,
+        resumeRequested: false,
+        resumeStateValid: true,
+        pausedFromStatus: state.status,
+      },
+    };
     this.stateStoreFactory(runId).write(next);
     return next;
   }
@@ -101,6 +111,9 @@ export class RunRuntime {
     const state = this.loadRun(runId);
     if (!canResume(state.status, true, state.facts.resumeStateValid)) {
       throw new Error('[LOOP_BLOCKED] only a valid PAUSED run can be resumed');
+    }
+    if (!state.facts.pausedFromStatus) {
+      throw new Error('[LOOP_BLOCKED] paused run has no persisted resume target');
     }
     const next = { ...state, facts: { ...state.facts, resumeRequested: true } };
     this.stateStoreFactory(runId).write(next);
