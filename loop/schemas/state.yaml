@@ -1,79 +1,117 @@
+# Loop 运行状态文件的 Schema 定义。
+# 项目级状态文件默认保存于 <project-root>/.loop/state.yaml。
+
+# Schema 版本号，用于未来兼容不同版本的状态结构。
 version: 1
 
 # Project-local file: <project-root>/.loop/state.yaml
-# This file records the resumable state of the active Loop run.
+# 本文件记录当前 Loop 运行的可恢复状态。
 
 run:
+  # 当前 Loop 运行的唯一 ID。
   id: <unique-run-id>
+  # 当前状态机状态，例如 INIT、IMPLEMENT、VERIFY、DONE 等。
   status: INIT
+  # 当前已经执行的 Loop 迭代次数。
   iteration: 0
+  # 当前已经消耗的 FIX 修复次数。
   fixAttempts: 0
+  # 当前连续重复失败的次数，用于触发安全阻断。
   sameFailureCount: 0
 
 context:
+  # 当前项目根目录，可以使用绝对路径或项目相对路径。
   projectRoot: <absolute-or-project-relative-root>
+  # Loop 启动时记录的 Git 基线 Commit SHA。
   baselineCommit: <git-commit-sha>
+  # Loop 启动时记录的 Git 基线分支。
   baselineBranch: <git-branch>
 
 request:
+  # 用户要求 Loop 完成的目标。
   goal: <goal>
+  # 用于判断任务是否完成的验收标准列表。
   acceptanceCriteria: []
 
 plan:
+  # 当前 Loop 计划产物的路径，通常位于 .loop/plans 目录下。
   artifact: <relative-path-under-.loop/plans>
 
 permission:
   trust:
+    # 当前生效的用户信任等级。
     level: low
   approval:
+    # 执行前的确认状态；通常由 Trust Level 和 Permission Policy 决定。
     beforeExecution: required
+    # 完成前的确认状态；通常由 Trust Level 和 Permission Policy 决定。
     beforeFinalize: required
 
 active:
+  # 当前正在执行的任务；没有活动任务时为空。
   task: null
+  # 当前正在执行的 Loop 阶段。
   phase: INIT
 
-criteria: {}
+criteria:
+  # 验收标准的当前状态映射；具体结构由运行时实现定义。
+  {}
 
 verification:
+  # 当前验证结果：pending 待验证、passed 通过、failed 失败等。
   status: pending
+  # 与验证结果关联的 Evidence ID 列表。
   evidence: []
 
 review:
+  # 当前 Review 结果状态，默认等待 Review。
   status: pending
 
+# 状态文件最后一次更新的时间戳。
 updatedAt: <timestamp>
 
-# State machine
+# -------------------- 状态机规则 --------------------
+# 以下规则定义 Loop 允许发生的状态转移。
 # INIT -> GOAL_REVIEW -> WAITING_FOR_GOAL_CONFIRMATION -> PLAN -> IMPLEMENT
 # IMPLEMENT -> VERIFY -> REVIEW -> READY_FOR_CONFIRMATION -> DONE
-# VERIFY -> FIX when verification fails
-# REVIEW -> FIX when review fails
-# READY_FOR_CONFIRMATION -> FIX when the user rejects the result
-# FIX -> IMPLEMENT
-# Any active state -> BLOCKED when execution cannot safely continue.
-# Confirmation gates are evaluated through the permission policy.
+# VERIFY -> FIX：验证失败时进入修复阶段。
+# REVIEW -> FIX：Review 失败时进入修复阶段。
+# READY_FOR_CONFIRMATION -> FIX：用户拒绝最终结果时进入修复阶段。
+# FIX -> IMPLEMENT：修复完成后重新进入实现阶段。
+# 任意活动状态 -> BLOCKED：无法安全继续执行时进入阻断状态。
+# 所有确认 Gate 都通过 Permission Policy 判断是否需要人工确认。
 
 stateRules:
   INIT:
+    # INIT 只能进入目标 Review 或安全阻断状态。
     allowedNext: [GOAL_REVIEW, BLOCKED]
   GOAL_REVIEW:
+    # Goal Review 完成后进入执行前确认 Gate，或因异常阻断。
     allowedNext: [WAITING_FOR_GOAL_CONFIRMATION, BLOCKED]
   WAITING_FOR_GOAL_CONFIRMATION:
+    # 执行前确认通过后进入计划阶段，或因异常阻断。
     allowedNext: [PLAN, BLOCKED]
   PLAN:
+    # 计划完成后进入实现阶段，或因异常阻断。
     allowedNext: [IMPLEMENT, BLOCKED]
   IMPLEMENT:
+    # 实现完成后进入验证阶段，或因异常阻断。
     allowedNext: [VERIFY, BLOCKED]
   VERIFY:
+    # 验证通过进入 Review；验证失败进入 FIX；无法安全继续则阻断。
     allowedNext: [REVIEW, FIX, BLOCKED]
   REVIEW:
+    # Review 通过进入最终确认；Review 失败进入 FIX；无法安全继续则阻断。
     allowedNext: [READY_FOR_CONFIRMATION, FIX, BLOCKED]
   READY_FOR_CONFIRMATION:
+    # 最终结果确认通过进入 DONE；用户拒绝进入 FIX；无法安全继续则阻断。
     allowedNext: [DONE, FIX, BLOCKED]
   FIX:
+    # 修复完成后重新进入 IMPLEMENT，或因无法继续而阻断。
     allowedNext: [IMPLEMENT, BLOCKED]
   DONE:
+    # DONE 是终止状态，不允许继续转移。
     allowedNext: []
   BLOCKED:
+    # BLOCKED 是终止状态，不允许继续转移。
     allowedNext: []
