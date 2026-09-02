@@ -19,15 +19,17 @@ export interface AuditReplayResult {
   policyRevisions: number[];
 }
 
+const SAFE_RUN_ID = /^[A-Za-z0-9._-]+$/;
+
 /**
- * P2-5 audit replay: reconstruct a Run's observable state-transition timeline
+ * P2-5/P2-12 audit replay: reconstruct a Run's observable state-transition timeline
  * from the append-only runtime history without executing the Agent again.
  */
 export class RuntimeAuditReplay {
   constructor(private readonly workspace: string = '.loop') {}
 
   read(runId: string): RuntimeAuditEvent[] {
-    if (!runId.trim()) throw new Error('[LOOP_BLOCKED] runId is required for audit replay');
+    this.validateRunId(runId);
     const path = join(this.workspace, 'runtime', 'history.jsonl');
     if (!existsSync(path)) return [];
 
@@ -64,6 +66,12 @@ export class RuntimeAuditReplay {
     }
 
     return { runId, events, transitions, finalStatus, policyRevisions };
+  }
+
+  private validateRunId(runId: string): void {
+    if (!runId.trim() || runId !== runId.trim() || !SAFE_RUN_ID.test(runId) || runId === '.' || runId === '..') {
+      throw new Error('[LOOP_BLOCKED] invalid runId for audit replay');
+    }
   }
 
   private validateEvent(event: RuntimeAuditEvent, line: number): void {
