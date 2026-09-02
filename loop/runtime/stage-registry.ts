@@ -63,6 +63,11 @@ export class StageRegistry {
         nextStatus: (state) => state.facts.reviewPassed ? 'READY_FOR_CONFIRMATION' : state.facts.reviewFailed ? 'FIX' : undefined,
       },
       { stage: 'FIX', statuses: ['FIX'], nextStatus: () => 'IMPLEMENT' },
+      /**
+       * READY_FOR_CONFIRMATION 是最终人工确认后的可执行收尾阶段。
+       * runUntilHalt 仍会在该状态停止；只有显式 step() 才会执行 Completion Gate。
+       */
+      { stage: 'READY_FOR_CONFIRMATION', statuses: ['READY_FOR_CONFIRMATION'], nextStatus: () => 'DONE' },
     ];
   }
 }
