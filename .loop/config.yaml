@@ -6,6 +6,10 @@ version: 1
 # low：所有 Trust-controlled Gate 默认需要用户确认。
 trust: low
 
+# Policy Revision 用于防止策略读取与实际执行之间的 TOCTOU。
+# 每次项目策略发生变更时必须递增。
+policyRevision: 1
+
 # 项目权限。
 # 未声明的权限继承 Loop 引擎默认配置。
 permissions:
