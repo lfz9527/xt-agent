@@ -16,7 +16,7 @@ Project
        │    └── Project Policy
        │
        └── Runtime
-            ├── runs/<run-id>/       ← Run 私有状态
+            ├── runs/<run-id>/       ← Run 私有状态与派生产物
             ├── history.jsonl        ← 跨 Run 审计事实
             └── locks/               ← 资源级互斥
 ```
@@ -31,7 +31,9 @@ Project
 ├── runtime/
 │   ├── runs/
 │   │   └── <run-id>/
-│   │       └── state.yaml
+│   │       ├── state.yaml
+│   │       ├── mutation-journal.jsonl
+│   │       └── replay-report.json
 │   ├── history.jsonl
 │   └── locks/
 │       └── <resource>.lock
@@ -45,6 +47,8 @@ Project
 |---|---|
 | `.loop/config.yaml` | 项目 Trust、Permission、项目级 Policy 的唯一来源 |
 | `.loop/runtime/runs/<run-id>/state.yaml` | 当前 Run 独立 Runtime State |
+| `.loop/runtime/runs/<run-id>/mutation-journal.jsonl` | 当前 Run 的资源 Mutation 历史 |
+| `.loop/runtime/runs/<run-id>/replay-report.json` | P2-5 从审计历史物化出的 Replay Report |
 | `.loop/runtime/history.jsonl` | 跨 Run 的 append-only Runtime 历史事件 |
 | `.loop/runtime/locks/<resource>.lock` | 共享资源互斥锁 |
 | `.loop/plans/<run-id>.md` | 当前 Run 生成的 Plan |
@@ -53,6 +57,22 @@ Project
 | `.loop/reviews/<run-id>.md` | 当前 Run 的 Review 结果 |
 
 具体目录和命名规则以 `loop/schemas/artifact.yaml` 为准。
+
+### P2-5 Replay Report
+
+P2-5 的权威事实仍然是：
+
+```text
+.loop/runtime/history.jsonl
+```
+
+Replay 后生成的报告落盘到当前 Run：
+
+```text
+.loop/runtime/runs/<run-id>/replay-report.json
+```
+
+它是派生文件，用于诊断、审计查看和后续 API / UI 消费；不能反向替代 `history.jsonl` 作为 Runtime 真相源。
 
 ## Run 与 Resource
 
@@ -272,3 +292,4 @@ Agent 自己声称“完成”不能替代 Evidence。
 10. **State Machine 只负责生命周期。**
 11. **Evidence 只负责证明结果。**
 12. **所有运行产物通过 run-id 关联。**
+13. **Replay Report 是派生文件，`history.jsonl` 是权威审计事实。**
