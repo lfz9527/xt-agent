@@ -24,12 +24,14 @@ export interface SchedulerHandle {
 }
 
 /**
- * P2-10 Adapter：Scheduler 只负责“何时触发”，不拥有 Loop Runtime 状态。
+ * P2-10/P2-12 Adapter：Scheduler 只负责“何时触发”，不拥有 Loop Runtime 状态。
  * 每次触发都委托给共享 RunService；状态机、Policy、Permission、Trust、Approval
  * 与 Evidence 均由 Runtime / RunService 负责。
+ * 同一 interval Job 的 Run 采用 single-flight，避免一个 Job 重入并发启动多个 Run。
  */
 export class SchedulerRuntimeAdapter {
   private readonly jobs = new Map<string, SchedulerHandle>();
+  private readonly activeRuns = new Set<string>();
   private readonly timer: SchedulerTimerPort;
   private readonly runtime: SchedulerRuntimePort;
 
@@ -50,7 +52,11 @@ export class SchedulerRuntimeAdapter {
     const cancel = () => this.cancel(job.id);
     const handle: SchedulerHandle = { id: job.id, cancel };
     const trigger = () => {
-      void this.runtime.run().catch(() => undefined);
+      if (this.activeRuns.has(job.id)) return;
+      this.activeRuns.add(job.id);
+      void this.runtime.run()
+        .catch(() => undefined)
+        .finally(() => this.activeRuns.delete(job.id));
     };
 
     if (job.intervalMs !== undefined) {
@@ -81,6 +87,7 @@ export class SchedulerRuntimeAdapter {
     if (!handle) return false;
     handle.cancel();
     this.jobs.delete(id);
+    this.activeRuns.delete(id);
     return true;
   }
 
