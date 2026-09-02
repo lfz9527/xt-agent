@@ -103,7 +103,57 @@ CLI 不直接读取 `.loop/runtime/history.jsonl` 或 Run 文件。`ReplayServic
 
 Human 输出用于人工诊断；`--json` 输出稳定的机器可读 `ReplayReport`，供未来 API、GUI、Agent 和 CI 复用。
 
-P2-6 暂不实现 `run`、`resume`、`approve`、`pause` 等命令，这些命令将在后续 Adapter 能力中接入 Runtime。
+## P2-7 Run / Resume Runtime Adapter
+
+P2-7 在 P2-6 的 Adapter 边界上接入真实 Runtime，不在 CLI 中复制生命周期逻辑。
+
+```bash
+loop run
+loop resume <run-id>
+```
+
+调用链：
+
+```text
+CLI
+ ↓
+RunService
+ ├── RunRuntime.createRun()
+ │       ↓
+ │   Runtime State + Policy Snapshot + Git Baseline
+ │
+ └── ExecutionRuntime.runUntilHalt()
+
+CLI
+ ↓
+RunService.resume(run-id)
+ ↓
+RunRuntime.resume()
+ ↓
+Kernel.transition(persisted pausedFromStatus)
+ ↓
+ExecutionRuntime.runUntilHalt()
+```
+
+关键规则：
+
+- CLI 只是参数解析和错误边界，不实现 State Machine。
+- `RunService` 只负责协调 `RunRuntime`、`LoopRuntimeKernel` 和 `ExecutionRuntime`。
+- `loop run` 必须通过 `RunRuntime.createRun()` 创建 Run，不能自行生成 State。
+- `loop resume` 必须从持久化 Runtime Facts 中读取 `pausedFromStatus`，禁止根据当前事实猜测恢复位置。
+- Resume 仍必须通过 `Kernel.transition()`，因此 Policy Revision、Transition Guard 和安全边界继续由 Runtime 统一执行。
+- Policy Revision mismatch、非法 Resume、缺失恢复目标或 Runtime corruption 都必须返回非零错误。
+- `BLOCKED` 不允许 Resume；`PAUSED` 才是可恢复状态。
+
+`pausedFromStatus` 是 Runtime State 的持久化事实，落在：
+
+```text
+.loop/runtime/runs/<run-id>/state.yaml
+```
+
+因此进程崩溃、CLI 重启或聊天历史丢失后，Resume 仍然只依赖项目 `.loop/` 中的 Runtime State，而不是依赖 Agent 的上下文记忆。
+
+P2-7 暂不实现 `approve`、`pause`、`status` 等独立 CLI 命令；这些能力仍由 Runtime API 提供，后续 Adapter 再逐步暴露。
 
 ## Run 与 Resource
 
@@ -290,8 +340,10 @@ VERIFY / REVIEW / READY_FOR_CONFIRMATION
 4. 读取 `.loop/config.yaml` 并重新解析 Policy。
 5. Revision mismatch 则 `BLOCKED`。
 6. 校验该 Run 的 Plan / Spec / Evidence / Review。
-7. 根据 State Machine 和 Transition Guard 恢复。
-8. 不使用聊天历史猜测 Runtime 状态。
+7. 从持久化 `facts.pausedFromStatus` 恢复原状态，不允许根据事实猜测。
+8. 通过 `LoopRuntimeKernel.transition()` 重新进入 State Machine。
+9. 根据 State Machine 和 Transition Guard 恢复执行。
+10. 不使用聊天历史猜测 Runtime 状态。
 
 ## Evidence
 
@@ -325,3 +377,4 @@ Agent 自己声称“完成”不能替代 Evidence。
 12. **所有运行产物通过 run-id 关联。**
 13. **Replay Report 是派生文件，`history.jsonl` 是权威审计事实。**
 14. **CLI 是 Runtime Adapter，不是 Runtime 本身。**
+15. **Resume 必须从持久化 Runtime Facts 恢复，不能依赖聊天上下文。**
