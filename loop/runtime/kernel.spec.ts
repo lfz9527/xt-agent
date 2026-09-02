@@ -1,20 +1,22 @@
 import { describe, expect, it, vi } from 'vitest';
 import { LoopRuntimeKernel, type LoopRuntimeState } from './kernel';
+import { RuntimeResourceLock } from './lock';
+import type { RuntimeFacts } from './enforcement';
 
-const snapshot = {
-  runId: 'run-1',
-  policyRevision: 3,
-  trust: 'high',
-  permissions: {},
-  effectivePolicy: {},
-  resolvedAt: new Date(0).toISOString(),
+const snapshot = { runId: 'run-1', policyRevision: 3, trust: 'high', permissions: {}, effectivePolicy: {}, resolvedAt: new Date(0).toISOString() };
+const facts: RuntimeFacts = {
+  executionApprovalSatisfied: false, planArtifactExists: false, implementationCompleted: true,
+  verificationPassed: false, verificationFailed: false, reviewPassed: false, reviewFailed: false,
+  acceptancePassed: false, finalApprovalSatisfied: false, finalApprovalRejected: false,
+  fixAttemptsWithinLimit: true, resumeRequested: false, resumeStateValid: false, pauseExpired: false,
 };
 
 function fixture() {
-  const state: LoopRuntimeState = { runId: 'run-1', status: 'IMPLEMENT', policyRevision: 3, snapshot };
+  const state: LoopRuntimeState = { runId: 'run-1', status: 'IMPLEMENT', policyRevision: 3, snapshot, facts };
   const store = { read: vi.fn(() => state), write: vi.fn((next: LoopRuntimeState) => Object.assign(state, next)) };
   const policy = { currentRevision: vi.fn(() => 3) };
-  return { state, store, policy, kernel: new LoopRuntimeKernel(store, policy) };
+  const lock = new RuntimeResourceLock('/tmp/loop-kernel-test');
+  return { state, store, policy, kernel: new LoopRuntimeKernel(store, policy, undefined, undefined, lock) };
 }
 
 describe('LoopRuntimeKernel', () => {
@@ -44,13 +46,13 @@ describe('LoopRuntimeKernel', () => {
 
   it('prevents guarded state transitions from bypassing the kernel', () => {
     const { kernel, store } = fixture();
-    expect(() => kernel.transition('VERIFY', { implementationCompleted: false })).toThrow('LOOP_BLOCKED');
+    expect(() => kernel.transition('VERIFY')).toThrow('LOOP_BLOCKED');
     expect(store.write).not.toHaveBeenCalled();
   });
 
-  it('writes state only after a valid guarded transition', () => {
+  it('writes state only after runtime facts satisfy the guard', () => {
     const { kernel, store } = fixture();
-    kernel.transition('VERIFY', { implementationCompleted: true });
+    kernel.transition('VERIFY');
     expect(store.write).toHaveBeenCalledOnce();
     expect(store.read().status).toBe('VERIFY');
   });
@@ -58,7 +60,7 @@ describe('LoopRuntimeKernel', () => {
   it('blocks state transitions when the policy revision becomes stale', () => {
     const { kernel, policy, store } = fixture();
     policy.currentRevision.mockReturnValue(4);
-    expect(() => kernel.transition('VERIFY', { implementationCompleted: true })).toThrow('LOOP_BLOCKED');
+    expect(() => kernel.transition('VERIFY')).toThrow('LOOP_BLOCKED');
     expect(store.write).not.toHaveBeenCalled();
   });
 });
