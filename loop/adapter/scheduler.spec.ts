@@ -38,10 +38,28 @@ describe('SchedulerRuntimeAdapter', () => {
     const adapter = new SchedulerRuntimeAdapter({ run }, clock);
     adapter.schedule({ id: 'heartbeat', intervalMs: 1000 });
     clock.fireInterval();
+    await Promise.resolve();
     clock.fireInterval();
     await Promise.resolve();
     expect(run).toHaveBeenCalledTimes(2);
     expect(adapter).not.toHaveProperty('state');
+  });
+
+  it('prevents an interval job from starting a second Run while the first is active', async () => {
+    let resolveRun!: (value: LoopRuntimeState) => void;
+    const run = vi.fn(() => new Promise<LoopRuntimeState>((resolve) => { resolveRun = resolve; }));
+    const clock = timer();
+    const adapter = new SchedulerRuntimeAdapter({ run }, clock);
+    adapter.schedule({ id: 'heartbeat', intervalMs: 1000 });
+
+    clock.fireInterval();
+    clock.fireInterval();
+    expect(run).toHaveBeenCalledOnce();
+
+    resolveRun(state());
+    await Promise.resolve();
+    clock.fireInterval();
+    expect(run).toHaveBeenCalledTimes(2);
   });
 
   it('blocks duplicate job IDs', () => {
