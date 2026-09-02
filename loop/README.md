@@ -74,6 +74,37 @@ Replay 后生成的报告落盘到当前 Run：
 
 它是派生文件，用于诊断、审计查看和后续 API / UI 消费；不能反向替代 `history.jsonl` 作为 Runtime 真相源。
 
+## P2-6 Runtime Adapter / CLI
+
+P2-6 建立 Loop Runtime 的外部调用边界。CLI 是 Adapter，不实现状态机、Permission、Trust、Approval、Lock、Mutation 或 Evidence 逻辑。
+
+当前只开放 Replay：
+
+```bash
+loop replay <run-id>
+loop replay <run-id> --json
+```
+
+调用链：
+
+```text
+CLI
+ ↓
+ReplayService
+ ↓
+RuntimeAuditReplay
+ ↓
+RuntimeReplayReport
+ ↓
+RuntimeReplayReportStore
+```
+
+CLI 不直接读取 `.loop/runtime/history.jsonl` 或 Run 文件。`ReplayService` 负责协调 Runtime Replay，并将派生报告落盘到 `.loop/runtime/runs/<run-id>/replay-report.json`。
+
+Human 输出用于人工诊断；`--json` 输出稳定的机器可读 `ReplayReport`，供未来 API、GUI、Agent 和 CI 复用。
+
+P2-6 暂不实现 `run`、`resume`、`approve`、`pause` 等命令，这些命令将在后续 Adapter 能力中接入 Runtime。
+
 ## Run 与 Resource
 
 Loop 不使用 Project 级 `run.lock`。Run 和资源锁是两个不同概念：
@@ -293,3 +324,4 @@ Agent 自己声称“完成”不能替代 Evidence。
 11. **Evidence 只负责证明结果。**
 12. **所有运行产物通过 run-id 关联。**
 13. **Replay Report 是派生文件，`history.jsonl` 是权威审计事实。**
+14. **CLI 是 Runtime Adapter，不是 Runtime 本身。**
