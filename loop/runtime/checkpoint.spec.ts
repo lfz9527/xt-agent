@@ -62,7 +62,7 @@ describe('FileCheckpointStore', () => {
     const state = makeState();
     const store: StateStore = { read: () => state, write: (next) => Object.assign(state, next) };
     const runs = { loadRun: vi.fn(() => state) } as unknown as RunRuntime;
-    const kernel = {} as LoopRuntimeKernel;
+    const kernel = { transition: vi.fn() } as unknown as LoopRuntimeKernel;
     const executor = { execute: vi.fn(async () => ({})) };
     const workspace = mkdtempSync(join(tmpdir(), 'loop-recovery-mismatch-'));
     const checkpoints = new FileCheckpointStore(workspace);
