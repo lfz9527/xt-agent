@@ -39,7 +39,6 @@ export class StageRegistry {
       { stage: 'VERIFY', statuses: ['VERIFY'] },
       { stage: 'REVIEW', statuses: ['REVIEW'] },
       { stage: 'FIX', statuses: ['FIX'] },
-      { stage: 'READY_FOR_CONFIRMATION', statuses: ['READY_FOR_CONFIRMATION'] },
     ];
   }
 }
