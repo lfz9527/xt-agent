@@ -1,123 +1,106 @@
-# Loop 运行状态文件的 Schema 定义。
-# Runtime 状态与项目级 `.loop` 配置分离。
-
-# Schema 版本号，用于未来兼容不同版本的状态结构。
+# Loop Runtime 状态 Schema。
+# 这里描述一次 Loop 运行，不描述项目级配置。
+# 项目级 Trust 和 Permission 唯一来源是项目根目录 `.loop`。
 version: 1
 
-# Runtime 状态文件由 Loop 实现管理，不属于项目级 `.loop` 配置。
-# 本文件记录当前 Loop 运行的可恢复状态。
-
 run:
-  # 当前 Loop 运行的唯一 ID。
+  # 当前 Loop 运行唯一 ID。
   id: <unique-run-id>
-  # 当前状态机状态，例如 INIT、IMPLEMENT、VERIFY、DONE 等。
+  # 当前状态机状态。
   status: INIT
-  # 当前已经执行的 Loop 迭代次数。
+  # 当前迭代次数。
   iteration: 0
-  # 当前已经消耗的 FIX 修复次数。
+  # 当前 FIX 次数。
   fixAttempts: 0
-  # 当前连续重复失败的次数，用于触发安全阻断。
+  # 当前连续重复失败次数。
   sameFailureCount: 0
 
 context:
-  # 当前项目根目录，可以使用绝对路径或项目相对路径。
+  # 项目根目录。
   projectRoot: <absolute-or-project-relative-root>
-  # Loop 启动时记录的 Git 基线 Commit SHA。
+  # INIT 时记录的 Git 基线 Commit。
   baselineCommit: <git-commit-sha>
-  # Loop 启动时记录的 Git 基线分支。
+  # INIT 时记录的 Git 基线分支。
   baselineBranch: <git-branch>
 
 request:
-  # 用户要求 Loop 完成的目标。
+  # 用户要求完成的目标。
   goal: <goal>
-  # 用于判断任务是否完成的验收标准列表。
+  # 验收标准列表。
   acceptanceCriteria: []
 
 plan:
-  # 当前 Loop 计划产物的路径。
+  # 当前计划产物路径。
   artifact: <relative-path>
 
-permission:
-  # 本次 Loop 启动或恢复时解析出的项目权限快照。
-  # Trust 的真实来源是项目根目录唯一的 `.loop` 文件，不是 Runtime。
-  snapshot:
-    # 解析快照对应的项目 Trust Level；仅用于恢复和审计，不作为独立配置来源。
-    trustLevel: low
-    approval:
-      # 当前运行解析得到的执行前审批策略。
-      beforeExecution: required
-      # 当前运行解析得到的完成前审批策略。
-      beforeFinalize: required
-    # Capability Permission 的解析结果摘要。
-    capabilities: {}
-
 active:
-  # 当前正在执行的任务；没有活动任务时为空。
+  # 当前活动任务；没有活动任务时为空。
   task: null
-  # 当前正在执行的 Loop 阶段。
+  # 当前 Loop 阶段。
   phase: INIT
 
 criteria:
-  # 验收标准的当前状态映射；具体结构由运行时实现定义。
+  # 验收标准当前状态由 Runtime 管理。
   {}
 
 verification:
-  # 当前验证结果：pending 待验证、passed 通过、failed 失败等。
+  # 验证状态：pending、passed、failed 等。
   status: pending
-  # 与验证结果关联的 Evidence ID 列表。
+  # 关联的 Evidence ID。
   evidence: []
 
 review:
-  # 当前 Review 结果状态，默认等待 Review。
+  # Review 状态。
   status: pending
 
-# 状态文件最后一次更新的时间戳。
+approval:
+  # Runtime 只记录审批事件，不保存第二份 Trust 配置。
+  # 每次 Gate 判断时，都从项目根目录 `.loop` 解析当前有效策略。
+  history: []
+
+# 状态最后更新时间。
 updatedAt: <timestamp>
 
 # -------------------- 状态机规则 --------------------
-# 以下规则定义 Loop 允许发生的状态转移。
 # INIT -> GOAL_REVIEW -> WAITING_FOR_GOAL_CONFIRMATION -> PLAN -> IMPLEMENT
 # IMPLEMENT -> VERIFY -> REVIEW -> READY_FOR_CONFIRMATION -> DONE
-# VERIFY -> FIX：验证失败时进入修复阶段。
-# REVIEW -> FIX：Review 失败时进入修复阶段。
-# READY_FOR_CONFIRMATION -> FIX：用户拒绝最终结果时进入修复阶段。
-# FIX -> IMPLEMENT：修复完成后重新进入实现阶段。
-# 任意活动状态 -> BLOCKED：无法安全继续执行时进入阻断状态。
-# WAITING_FOR_GOAL_CONFIRMATION 和 READY_FOR_CONFIRMATION 都必须使用项目 `.loop` 解析出的有效 Permission Policy。
-# Trust Level 属于项目；Runtime 只保存本次运行使用的权限快照。
-# Trust Level 不得绕过高风险操作和硬性安全边界。
+# VERIFY -> FIX；REVIEW -> FIX；READY_FOR_CONFIRMATION -> FIX。
+# FIX -> IMPLEMENT。
+# 任意活动状态都可以在无法安全继续时进入 BLOCKED。
+# WAITING_FOR_GOAL_CONFIRMATION 和 READY_FOR_CONFIRMATION 的审批策略
+# 必须从项目 `.loop` 解析，不得从 Runtime 状态读取 Trust。
 
 stateRules:
   INIT:
-    # INIT 只能进入目标 Review 或安全阻断状态。
+    # 初始化只能进入 Goal Review 或阻断。
     allowedNext: [GOAL_REVIEW, BLOCKED]
   GOAL_REVIEW:
-    # Goal Review 完成后进入执行前确认 Gate，或因异常阻断。
+    # Goal Review 完成后进入执行前 Gate 或阻断。
     allowedNext: [WAITING_FOR_GOAL_CONFIRMATION, BLOCKED]
   WAITING_FOR_GOAL_CONFIRMATION:
-    # 执行前审批通过后进入计划阶段；automatic 和 required 均属于合法的审批通过结果。
+    # Gate 通过后进入计划阶段。
     allowedNext: [PLAN, BLOCKED]
   PLAN:
-    # 计划完成后进入实现阶段，或因异常阻断。
+    # 计划完成后进入实现阶段。
     allowedNext: [IMPLEMENT, BLOCKED]
   IMPLEMENT:
-    # 实现完成后进入验证阶段，或因异常阻断。
+    # 实现完成后进入验证阶段。
     allowedNext: [VERIFY, BLOCKED]
   VERIFY:
-    # 验证通过进入 Review；验证失败进入 FIX；无法安全继续则阻断。
+    # 验证通过进入 Review，失败进入 FIX。
     allowedNext: [REVIEW, FIX, BLOCKED]
   REVIEW:
-    # Review 通过进入最终确认；Review 失败进入 FIX；无法安全继续则阻断。
+    # Review 通过进入 Final Gate，失败进入 FIX。
     allowedNext: [READY_FOR_CONFIRMATION, FIX, BLOCKED]
   READY_FOR_CONFIRMATION:
-    # 最终审批通过进入 DONE；用户拒绝进入 FIX；无法安全继续则阻断。
+    # Final Gate 通过进入 DONE，拒绝进入 FIX。
     allowedNext: [DONE, FIX, BLOCKED]
   FIX:
-    # 修复完成后重新进入 IMPLEMENT，或因无法继续而阻断。
+    # 修复完成后重新实现。
     allowedNext: [IMPLEMENT, BLOCKED]
   DONE:
-    # DONE 是终止状态，不允许继续转移。
+    # DONE 是终止状态。
     allowedNext: []
   BLOCKED:
-    # BLOCKED 是终止状态，不允许继续转移。
+    # BLOCKED 是终止状态。
     allowedNext: []
