@@ -15,24 +15,16 @@ trust:
   # Trust 是项目级属性，这里只定义等级的通用审批语义。
   levels:
     low:
-      # LOW 默认要求执行前人工审批。
       beforeExecution: required
-      # LOW 默认要求完成前人工审批。
       beforeFinalize: required
     medium:
-      # MEDIUM 默认允许执行前自动通过。
       beforeExecution: automatic
-      # MEDIUM 默认要求完成前人工审批。
       beforeFinalize: required
     high:
-      # HIGH 默认允许执行前自动通过。
       beforeExecution: automatic
-      # HIGH 默认允许完成前自动通过。
       beforeFinalize: automatic
     full:
-      # FULL 默认允许执行前自动通过。
       beforeExecution: automatic
-      # FULL 默认允许完成前自动通过。
       beforeFinalize: automatic
 
 security:
@@ -49,6 +41,11 @@ policy:
   revisionRequired: true
   # 执行前必须校验 Snapshot Revision 与当前项目策略 Revision 一致。
   requireRevisionMatchBeforeExecution: true
+  # Runtime 必须拒绝无效 Revision，且策略变更只能产生更高 Revision。
+  requirePositiveIntegerRevision: true
+  requireMonotonicRevision: true
+  # Policy Snapshot 在 Run 创建后视为只读；变更策略必须生成新的 Snapshot。
+  snapshotImmutable: true
 
 workflow:
   # Loop 的固定生命周期状态集合。
@@ -66,25 +63,16 @@ workflow:
     - BLOCKED
     - PAUSED
   testFirst:
-    # 是否启用 Test First 规则。
     enabled: true
-    # Test First 时是否要求测试文件先于实现文件处理。
     testFilesBeforeImplementation: true
-    # Test First 阶段是否禁止修改实现文件。
     implementationModificationBlockedDuringTestPhase: true
-    # 是否强制要求实现前出现可执行的失败测试。
     requireExecutableRedWithoutImplementation: false
 
 completion:
-  # 是否启用最终完成审批 Gate。
   finalApprovalGateEnabled: true
-  # 是否要求所有验收标准满足。
   requireAllAcceptanceCriteria: true
-  # Agent 自己声称完成不能作为 Evidence。
   agentClaimIsEvidence: false
-  # 是否要求 Verification 通过。
   requireVerificationPass: true
-  # 是否要求 Review 通过。
   requireReviewPass: true
 
 persistence:
