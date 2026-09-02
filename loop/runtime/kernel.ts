@@ -1,4 +1,5 @@
 import { enforceCapability, enforceTransition, type EnforcementContext, type EnforcementResult, type PolicySnapshot, type TransitionGuardContext } from './enforcement';
+import { createRuntimeEventId, type RuntimeAuditLog } from './persistence';
 
 export interface LoopRuntimeState {
   runId: string;
@@ -29,6 +30,7 @@ export class LoopRuntimeKernel {
     private readonly stateStore: StateStore,
     private readonly policy: PolicyRevisionSource,
     private readonly approval?: ApprovalProvider,
+    private readonly audit?: RuntimeAuditLog,
   ) {}
 
   /**
@@ -55,8 +57,27 @@ export class LoopRuntimeKernel {
     });
 
     if (result.status === 'CONFIRM') {
-      if (!this.approval) throw new Error('approval provider is required for a confirm decision');
+      if (!this.approval) {
+        this.blocked(state, 'approval provider is required for a confirm decision');
+        throw new Error('approval provider is required for a confirm decision');
+      }
+      this.audit?.append({
+        eventId: createRuntimeEventId('approval'),
+        runId: state.runId,
+        type: 'APPROVAL_REQUESTED',
+        at: new Date().toISOString(),
+        policyRevision: state.policyRevision,
+        payload: { capability: input.capability, reason: result.reason },
+      });
       approvalDecision = await this.approval.request({ runId: state.runId, capability: input.capability, reason: result.reason });
+      this.audit?.append({
+        eventId: createRuntimeEventId('approval'),
+        runId: state.runId,
+        type: 'APPROVAL_RESOLVED',
+        at: new Date().toISOString(),
+        policyRevision: state.policyRevision,
+        payload: { capability: input.capability, decision: approvalDecision },
+      });
       result = this.enforce({
         ...input,
         runId: state.runId,
@@ -67,7 +88,10 @@ export class LoopRuntimeKernel {
       });
     }
 
-    if (!result.allowed) throw new Error(`[LOOP_${result.status}] ${result.reason}`);
+    if (!result.allowed) {
+      this.blocked(state, result.reason);
+      throw new Error(`[LOOP_${result.status}] ${result.reason}`);
+    }
     return executor.execute();
   }
 
@@ -76,16 +100,37 @@ export class LoopRuntimeKernel {
     const state = this.stateStore.read();
     const currentRevision = this.policy.currentRevision();
     if (state.policyRevision !== currentRevision) {
+      this.blocked(state, 'policy revision mismatch');
       throw new Error('[LOOP_BLOCKED] policy revision mismatch');
     }
     const context: TransitionGuardContext = { from: state.status, to, guards: { ...guards, policyRevisionMatch: true } };
     if (!enforceTransition(context)) {
+      this.blocked(state, `transition ${state.status} -> ${to} failed its guards`);
       throw new Error(`[LOOP_BLOCKED] transition ${state.status} -> ${to} failed its guards`);
     }
     this.stateStore.write({ ...state, status: to });
+    this.audit?.append({
+      eventId: createRuntimeEventId('transition'),
+      runId: state.runId,
+      type: 'STATE_TRANSITION',
+      at: new Date().toISOString(),
+      policyRevision: state.policyRevision,
+      payload: { from: state.status, to },
+    });
   }
 
   private enforce(context: EnforcementContext): EnforcementResult {
     return enforceCapability(context);
+  }
+
+  private blocked(state: LoopRuntimeState, reason: string): void {
+    this.audit?.append({
+      eventId: createRuntimeEventId('blocked'),
+      runId: state.runId,
+      type: 'BLOCKED',
+      at: new Date().toISOString(),
+      policyRevision: state.policyRevision,
+      payload: { status: state.status, reason },
+    });
   }
 }
