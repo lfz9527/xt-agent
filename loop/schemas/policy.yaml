@@ -1,0 +1,82 @@
+# Loop Policy Decision Schema。
+# 本文件定义 Permission、Security、Trust、Approval 和最终执行决策之间的统一契约。
+version: 1
+
+capabilityDecision:
+  values:
+    - deny
+    - allow
+    - confirm
+  # deny 永远阻断；confirm 表示能力允许但需要经过 Approval。
+  precedence: deny > confirm > allow
+
+approvalDecision:
+  values:
+    - required
+    - automatic
+    - approved
+    - rejected
+  # required 是 Gate 策略；approved / rejected 是实际 Gate 结果。
+
+resolution:
+  # Permission 首先决定 Capability 是否允许。
+  steps:
+    - permission
+    - security
+    - trust
+    - approval
+    - gate
+  # 显式 deny 不得被 Trust 或 Approval 覆盖。
+  denyAlwaysWins: true
+  # 高风险能力必须经过独立 Security Policy。
+  highRiskRequiresIndependentPolicy: true
+  # confirm 只能进入 Approval，不得直接执行。
+  confirmRequiresApproval: true
+
+policySnapshot:
+  # 每次执行决策绑定解析时的配置版本。
+  required: true
+  fields:
+    - policyRevision
+    - trust
+    - permissions
+    - effectivePolicy
+    - resolvedAt
+  # 执行前必须确认当前 Revision 与 Snapshot 一致。
+  requireRevisionMatchBeforeExecution: true
+  # Revision 不一致时必须阻断，禁止使用旧策略继续执行。
+  revisionMismatchAction: BLOCKED
+
+transitionGuards:
+  # 状态合法性之外，还必须满足进入条件。
+  requireGuards: true
+  WAITING_FOR_GOAL_CONFIRMATION_to_PLAN:
+    requires:
+      - gate.beforeExecution == approved
+  VERIFY_to_REVIEW:
+    requires:
+      - verification.status == passed
+  REVIEW_to_READY_FOR_CONFIRMATION:
+    requires:
+      - review.status == passed
+  READY_FOR_CONFIRMATION_to_DONE:
+    requires:
+      - acceptanceCriteria.allPassed == true
+      - verification.status == passed
+      - review.status == passed
+      - gate.beforeFinalize in [approved, automatic]
+
+blocked:
+  # BLOCKED 表示本次 Run 不能继续自动执行。
+  terminal: true
+  # 是否允许通过新的 Run 重新处理由 Runtime/用户流程决定，而不是非法状态转移。
+  resumeInPlace: false
+
+paused:
+  # PAUSED 用于可恢复的人工等待，不等同于安全阻断。
+  terminal: false
+  resumeInPlace: true
+  reasons:
+    - approval_required
+    - external_dependency
+    - user_requested_pause
