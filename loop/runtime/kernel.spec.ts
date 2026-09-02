@@ -1,4 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { LoopRuntimeKernel, type LoopRuntimeState } from './kernel';
 import { RuntimeResourceLock } from './lock';
 import type { RuntimeFacts } from './enforcement';
@@ -123,16 +127,23 @@ describe('LoopRuntimeKernel', () => {
   });
 
   it('journals a failed resource mutation and does not write runtime state', async () => {
-    const { store, state, policy } = fixture();
-    const baseline = captureGitBaseline(process.cwd());
-    state.gitBaseline = baseline;
-    state.expectedWorktreeFingerprint = baseline.worktreeFingerprint;
-    const journal = { append: vi.fn() };
-    const lock = new RuntimeResourceLock('/tmp/loop-kernel-test');
-    const kernel = new LoopRuntimeKernel(store, policy, undefined, undefined, lock, journal);
-    const execute = vi.fn(async () => { throw new Error('mutation failed'); });
-    await expect(kernel.mutateResource({ resource: 'src/**/*.ts', kind: 'mutable', allowedCapabilities: ['code.modify'] }, 'code.modify', 'src/app.ts', { execute })).rejects.toThrow('mutation failed');
-    expect(store.write).not.toHaveBeenCalled();
-    expect(journal.append).toHaveBeenCalledWith(expect.objectContaining({ result: 'failed', resource: 'src/app.ts', capability: 'code.modify' }));
+    // 使用独立的临时 Git 仓库，避免并行测试产生的工作区文件变化污染本测试的 baseline。
+    const gitCwd = mkdtempSync(join(tmpdir(), 'loop-kernel-git-'));
+    try {
+      execFileSync('git', ['init'], { cwd: gitCwd, stdio: 'ignore' });
+      const { store, state, policy } = fixture();
+      const baseline = captureGitBaseline(gitCwd);
+      state.gitBaseline = baseline;
+      state.expectedWorktreeFingerprint = baseline.worktreeFingerprint;
+      const journal = { append: vi.fn() };
+      const lock = new RuntimeResourceLock('/tmp/loop-kernel-test');
+      const kernel = new LoopRuntimeKernel(store, policy, undefined, undefined, lock, journal, gitCwd);
+      const execute = vi.fn(async () => { throw new Error('mutation failed'); });
+      await expect(kernel.mutateResource({ resource: 'src/**/*.ts', kind: 'mutable', allowedCapabilities: ['code.modify'] }, 'code.modify', 'src/app.ts', { execute })).rejects.toThrow('mutation failed');
+      expect(store.write).not.toHaveBeenCalled();
+      expect(journal.append).toHaveBeenCalledWith(expect.objectContaining({ result: 'failed', resource: 'src/app.ts', capability: 'code.modify' }));
+    } finally {
+      rmSync(gitCwd, { recursive: true, force: true });
+    }
   });
 });
