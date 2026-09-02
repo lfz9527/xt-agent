@@ -39,12 +39,12 @@ plan:
 
 permission:
   trust:
-    # 当前生效的用户信任等级。
+    # 当前生效的用户信任等级；新运行默认来自 loop/config.yaml，恢复运行使用持久化值。
     level: low
   approval:
-    # 执行前的确认状态；通常由 Trust Level 和 Permission Policy 决定。
+    # 当前生效的执行前审批策略：required 表示需要人工确认，automatic 表示可自动通过。
     beforeExecution: required
-    # 完成前的确认状态；通常由 Trust Level 和 Permission Policy 决定。
+    # 当前生效的完成前审批策略：required 表示需要人工确认，automatic 表示可自动通过。
     beforeFinalize: required
 
 active:
@@ -79,7 +79,8 @@ updatedAt: <timestamp>
 # READY_FOR_CONFIRMATION -> FIX：用户拒绝最终结果时进入修复阶段。
 # FIX -> IMPLEMENT：修复完成后重新进入实现阶段。
 # 任意活动状态 -> BLOCKED：无法安全继续执行时进入阻断状态。
-# 所有确认 Gate 都通过 Permission Policy 判断是否需要人工确认。
+# WAITING_FOR_GOAL_CONFIRMATION 和 READY_FOR_CONFIRMATION 都必须先解析当前 Trust/Permission Policy。
+# Trust Level 只影响由 Trust 管理的审批策略，不得绕过高风险操作和硬性安全边界。
 
 stateRules:
   INIT:
@@ -89,7 +90,7 @@ stateRules:
     # Goal Review 完成后进入执行前确认 Gate，或因异常阻断。
     allowedNext: [WAITING_FOR_GOAL_CONFIRMATION, BLOCKED]
   WAITING_FOR_GOAL_CONFIRMATION:
-    # 执行前确认通过后进入计划阶段，或因异常阻断。
+    # 执行前审批通过后进入计划阶段；automatic 和 required 均属于合法的审批通过结果。
     allowedNext: [PLAN, BLOCKED]
   PLAN:
     # 计划完成后进入实现阶段，或因异常阻断。
@@ -104,7 +105,7 @@ stateRules:
     # Review 通过进入最终确认；Review 失败进入 FIX；无法安全继续则阻断。
     allowedNext: [READY_FOR_CONFIRMATION, FIX, BLOCKED]
   READY_FOR_CONFIRMATION:
-    # 最终结果确认通过进入 DONE；用户拒绝进入 FIX；无法安全继续则阻断。
+    # 最终审批通过进入 DONE；用户拒绝进入 FIX；无法安全继续则阻断。
     allowedNext: [DONE, FIX, BLOCKED]
   FIX:
     # 修复完成后重新进入 IMPLEMENT，或因无法继续而阻断。
