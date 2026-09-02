@@ -16,8 +16,8 @@ completion:
     - verification_must_pass
     # Review 阶段必须通过。
     - review_must_pass
-    # 用户确认完成后任务才能真正结束。
-    - user_confirmation_must_complete_task
+    # 只有当前生效的 Permission/Trust Policy 要求人工确认时，用户确认完成后任务才能真正结束。
+    - user_confirmation_required_when_policy_requires_it
 
 evidence:
   # 不同类型证据的默认可信度等级。
@@ -42,9 +42,9 @@ confirmation:
     # Goal 未确认时禁止进入实现阶段。
     blocksImplementation: true
   result:
-    # 是否要求用户确认最终结果。
+    # 是否启用最终结果确认 Gate；是否需要人工确认由 Permission/Trust Policy 决定。
     required: true
-    # 最终结果未确认时禁止进入 DONE。
+    # 最终结果确认 Gate 未通过时禁止进入 DONE。
     blocksDone: true
 
 failure:
