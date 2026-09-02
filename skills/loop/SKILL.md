@@ -292,29 +292,56 @@ VERIFY / REVIEW / READY_FOR_CONFIRMATION → FIX → IMPLEMENT
 
 需要人工等待或外部依赖时进入 `PAUSED`；安全阻断进入 `BLOCKED`。
 
-## Runtime Adapter
+## P2-9 Skill → Runtime Adapter
 
-CLI、`/loop` Skill 和未来 Scheduler 都是 Runtime 的入口适配层，而不是 Runtime 本身。
+`/loop` 是 Agent / 用户入口，但不拥有 Loop 生命周期。P2-9 将 Skill 入口正式绑定到 `LoopSkillRuntimeAdapter`，由 Adapter 把 Skill 请求委托给已经存在的 `RunService`。
 
 ```text
 /loop
   ↓
 Loop Skill
   ↓
-Runtime Adapter / RunService
+LoopSkillRuntimeAdapter
   ↓
-Loop Runtime
-
-loop run / resume / approve / reject / replay
+RunService
   ↓
-CLI Adapter
-  ↓
-Runtime Service
+RunRuntime / Kernel / ExecutionRuntime
   ↓
 Loop Runtime
 ```
 
-因此 `/loop` 仍然是 Agent / 用户入口；CLI 只是增加机器调用入口，两者最终必须汇聚到同一个 Runtime，不允许形成第二套状态机或审批状态。
+Adapter 只允许两类生命周期意图：
+
+```text
+{ action: "run" }
+{ action: "resume", runId: "..." }
+```
+
+强制规则：
+
+- Skill 不得创建第二套 State Machine。
+- Skill 不得直接读取或修改 `.loop/runtime`。
+- Skill 不得直接修改 `state.yaml`。
+- Skill 不得自行实现 Policy、Permission、Trust、Approval、Lock、Mutation 或 Evidence 判断。
+- `resume` 必须携带明确 Run ID；空 Run ID 在进入 Runtime 前直接 `BLOCKED`。
+- Adapter 只能委托给 Runtime Service，不能复制 Runtime 生命周期逻辑。
+- `/loop` 与 `loop CLI` 必须最终进入同一个 Runtime，不能产生两套状态。
+
+因此 `/loop`、CLI 和未来 Scheduler 都只是不同入口；**Loop Runtime 是唯一生命周期权威。**
+
+## Runtime Adapter
+
+CLI、`/loop` Skill 和未来 Scheduler 都是 Runtime 的入口适配层，而不是 Runtime 本身。
+
+```text
+/loop                         CLI
+  ↓                             ↓
+LoopSkillRuntimeAdapter     CLI Adapter
+  ↓                             ↓
+RunService / Runtime Service
+          ↓
+      Loop Runtime
+```
 
 ## INIT / Resume
 
