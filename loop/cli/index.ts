@@ -1,17 +1,27 @@
 #!/usr/bin/env node
 import { runReplayCommand } from './replay';
+import { runResumeCommand } from './resume';
+import { runRunCommand } from './run';
+import type { RunService } from './run-service';
+import type { ReplayService } from './service';
 
-export function runCli(argv: string[] = process.argv.slice(2)): number {
+export interface CliServices {
+  replay?: Pick<ReplayService, 'execute'>;
+  run?: Pick<RunService, 'run'>;
+  resume?: Pick<RunService, 'resume'>;
+}
+
+export async function runCli(argv: string[] = process.argv.slice(2), services: CliServices = {}): Promise<number> {
   const [command, ...args] = argv;
 
-  if (command !== 'replay') {
-    process.stderr.write('[LOOP_BLOCKED] supported command: replay <run-id> [--json]\n');
-    return 2;
-  }
+  if (command === 'replay') return runReplayCommand(args, { service: services.replay }).exitCode;
+  if (command === 'run') return (await runRunCommand(args, { service: services.run })).exitCode;
+  if (command === 'resume') return (await runResumeCommand(args, { service: services.resume })).exitCode;
 
-  return runReplayCommand(args).exitCode;
+  process.stderr.write('[LOOP_BLOCKED] supported commands: replay, run, resume\n');
+  return 2;
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-  process.exitCode = runCli();
+  runCli().then((exitCode) => { process.exitCode = exitCode; });
 }
