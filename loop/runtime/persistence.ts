@@ -1,4 +1,4 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { LoopRuntimeState } from './kernel';
 
@@ -40,7 +40,7 @@ export class FileStateStore {
   private hasStateForAnotherRun(): boolean {
     const runsRoot = join(this.workspace, 'runtime', 'runs');
     if (!existsSync(runsRoot)) return false;
-    return requireRunDirectories(runsRoot).some((run) => run !== this.runId && existsSync(join(runsRoot, run, 'state.yaml')));
+    return readdirSync(runsRoot, { withFileTypes: true }).some((entry) => entry.isDirectory() && entry.name !== this.runId && existsSync(join(runsRoot, entry.name, 'state.yaml')));
   }
   private validate(state: PersistedLoopRuntimeState): void {
     if (state.schemaVersion !== RUNTIME_STATE_SCHEMA_VERSION) throw new Error('[LOOP_BLOCKED] unsupported runtime state schema version');
@@ -49,11 +49,6 @@ export class FileStateStore {
     if (!state.snapshot || state.snapshot.runId !== state.runId || state.snapshot.policyRevision !== state.policyRevision) throw new Error('[LOOP_BLOCKED] persistent policy snapshot does not match runtime state');
     if (!state.facts) throw new Error('[LOOP_BLOCKED] runtime facts are required');
   }
-}
-
-function requireRunDirectories(runsRoot: string): string[] {
-  // 延迟引入 fs.readdirSync，保持当前 persistence API 的最小依赖面。
-  return readFileSync(join(runsRoot, '.runs-index'), 'utf8').split('\n').filter(Boolean);
 }
 
 export class JsonlRuntimeAuditLog implements RuntimeAuditLog {
