@@ -1,10 +1,10 @@
 # Loop Runtime 状态 Schema。
-# 这里描述一次 Loop 运行，不描述项目级配置。
-# 项目级 Trust 和 Permission 唯一来源是项目根目录 `.loop`。
+# 本文件描述一次运行的事实状态，不描述项目配置。
+# Trust、Permission 和项目 Policy 不属于 Runtime。
 version: 1
 
 run:
-  # 当前 Loop 运行唯一 ID。
+  # 当前 Loop 运行的唯一 ID。
   id: <unique-run-id>
   # 当前状态机状态。
   status: INIT
@@ -16,66 +16,57 @@ run:
   sameFailureCount: 0
 
 context:
-  # 项目根目录。
-  projectRoot: <absolute-or-project-relative-root>
-  # INIT 时记录的 Git 基线 Commit。
+  # 本次运行对应的项目根目录。
+  projectRoot: <project-root>
+  # INIT 时捕获的 Git 基线 Commit。
   baselineCommit: <git-commit-sha>
-  # INIT 时记录的 Git 基线分支。
+  # INIT 时捕获的 Git 分支。
   baselineBranch: <git-branch>
 
 request:
-  # 用户要求完成的目标。
+  # 本次运行的用户目标。
   goal: <goal>
-  # 验收标准列表。
+  # 用户目标对应的验收标准。
   acceptanceCriteria: []
 
 plan:
-  # 当前计划产物路径。
-  artifact: <relative-path>
+  # 当前计划内容或宿主 Runtime 对计划的引用。
+  artifact: <runtime-managed-reference>
 
 active:
-  # 当前活动任务；没有活动任务时为空。
+  # 当前正在处理的任务。
   task: null
   # 当前 Loop 阶段。
   phase: INIT
 
 criteria:
-  # 验收标准当前状态由 Runtime 管理。
-  {}
+  # 每个验收标准的 Runtime 执行状态。
+  items: []
 
 verification:
-  # 验证状态：pending、passed、failed 等。
+  # 当前 Verification 状态。
   status: pending
-  # 关联的 Evidence ID。
+  # 当前运行关联的 Evidence ID。
   evidence: []
 
 review:
-  # Review 状态。
+  # 当前 Review 状态。
   status: pending
 
 approval:
-  # Runtime 只记录审批事件，不保存第二份 Trust 配置。
-  # 每次 Gate 判断时，都从项目根目录 `.loop` 解析当前有效策略。
+  # 只记录实际发生的审批事件。
+  # 它不是项目 Trust 或 Permission 的配置来源。
   history: []
 
-# 状态最后更新时间。
 updatedAt: <timestamp>
 
-# -------------------- 状态机规则 --------------------
-# INIT -> GOAL_REVIEW -> WAITING_FOR_GOAL_CONFIRMATION -> PLAN -> IMPLEMENT
-# IMPLEMENT -> VERIFY -> REVIEW -> READY_FOR_CONFIRMATION -> DONE
-# VERIFY -> FIX；REVIEW -> FIX；READY_FOR_CONFIRMATION -> FIX。
-# FIX -> IMPLEMENT。
-# 任意活动状态都可以在无法安全继续时进入 BLOCKED。
-# WAITING_FOR_GOAL_CONFIRMATION 和 READY_FOR_CONFIRMATION 的审批策略
-# 必须从项目 `.loop` 解析，不得从 Runtime 状态读取 Trust。
-
+# 状态机只允许以下固定转移。
 stateRules:
   INIT:
-    # 初始化只能进入 Goal Review 或阻断。
+    # 初始化后进入目标评审或阻断。
     allowedNext: [GOAL_REVIEW, BLOCKED]
   GOAL_REVIEW:
-    # Goal Review 完成后进入执行前 Gate 或阻断。
+    # 目标评审完成后进入执行前 Gate 或阻断。
     allowedNext: [WAITING_FOR_GOAL_CONFIRMATION, BLOCKED]
   WAITING_FOR_GOAL_CONFIRMATION:
     # Gate 通过后进入计划阶段。
@@ -90,13 +81,13 @@ stateRules:
     # 验证通过进入 Review，失败进入 FIX。
     allowedNext: [REVIEW, FIX, BLOCKED]
   REVIEW:
-    # Review 通过进入 Final Gate，失败进入 FIX。
+    # Review 通过进入最终 Gate，失败进入 FIX。
     allowedNext: [READY_FOR_CONFIRMATION, FIX, BLOCKED]
   READY_FOR_CONFIRMATION:
-    # Final Gate 通过进入 DONE，拒绝进入 FIX。
+    # 最终 Gate 通过进入 DONE，拒绝进入 FIX。
     allowedNext: [DONE, FIX, BLOCKED]
   FIX:
-    # 修复完成后重新实现。
+    # 修复完成后重新进入实现阶段。
     allowedNext: [IMPLEMENT, BLOCKED]
   DONE:
     # DONE 是终止状态。
