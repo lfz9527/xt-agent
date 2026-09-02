@@ -2,7 +2,7 @@
 
 Loop is the generic, stateful control layer for autonomous software tasks.
 
-The Agent performs work. Loop controls lifecycle, state transitions, safety limits, confirmation gates, and evidence. The current project supplies technical and domain context. The project's `.loop/` workspace persists the run state and project-specific artifacts.
+The Agent performs work. Loop controls lifecycle, state transitions, permissions, safety limits, confirmation gates, and evidence. The current project supplies technical and domain context. The project's `.loop/` workspace persists the run state and project-specific artifacts.
 
 ## Principle
 
@@ -52,6 +52,44 @@ If execution cannot safely continue, the run enters `BLOCKED`.
 
 Test-first is a project/policy-controlled behavior inside the execution flow; it is not a mandatory global phase.
 
+## Permission and trust
+
+Confirmation is an **approval permission**, not a separate execution mode.
+
+Loop defaults to a low-trust policy. Users can explicitly raise the trust level when they want less interactive approval.
+
+```text
+Trust Level
+    ↓
+Permission Policy
+    ↓
+Approval Required?
+    ↓
+State Machine
+```
+
+Default configuration:
+
+```yaml
+trust:
+  level: low
+```
+
+The default `low` trust level requires approval before implementation and before final completion.
+
+Supported trust levels:
+
+| Level | Before execution | Before finalize | High-risk actions |
+|---|---|---|---|
+| `low` | User approval | User approval | Independent confirmation |
+| `medium` | Automatic | User approval | Independent confirmation |
+| `high` | Automatic | Automatic | Independent confirmation |
+| `full` | Automatic | Automatic | Still subject to hard safety boundaries |
+
+Trust is a **default authorization policy**, not an override for safety. High-risk operations such as dangerous shell commands, production-impacting actions, or other explicitly protected capabilities remain governed by their own permissions.
+
+Permission categories may include filesystem, shell, Git, network, and other Agent capabilities. The approval policy determines whether a confirmation gate pauses execution; capability-specific policies determine whether an action is allowed at all.
+
 ## Runtime model
 
 Loop is state-driven. The Agent must inspect the current persisted state before taking action.
@@ -59,7 +97,7 @@ Loop is state-driven. The Agent must inspect the current persisted state before 
 ```text
 load state
   ↓
-validate state + project context
+validate state + project context + permissions
   ↓
 execute current phase
   ↓
@@ -67,7 +105,7 @@ check exit conditions
   ↓
 record artifacts/evidence
   ↓
-validate transition
+validate transition + approval policy
   ↓
 persist state
 ```
@@ -79,6 +117,7 @@ Every phase has:
 - Required artifacts/evidence
 - Exit conditions
 - Allowed transitions
+- Applicable permission/approval checks
 
 The Agent MUST NOT perform actions belonging to a later phase early merely because they seem useful.
 
@@ -88,9 +127,9 @@ The Agent MUST NOT perform actions belonging to a later phase early merely becau
 skills/loop/SKILL.md
     ↓ Agent execution contract
 loop/config.yaml
-    ↓ generic policy and safety limits
+    ↓ generic policy, permissions, trust, and safety limits
 loop/schemas/state.yaml
-    ↓ state model and legal transitions
+    ↓ state + permission state model and legal transitions
 loop/schemas/evidence.yaml
     ↓ default evidence model
 <project>/.loop/
@@ -124,7 +163,7 @@ Follow an existing project `.loop/` convention when one exists. Create only dire
 
 ### Artifact responsibilities
 
-- `state.yaml`: machine-readable current run state, phase, task, counters, Acceptance Criteria, verification/review status, and Git baseline.
+- `state.yaml`: machine-readable current run state, phase, task, counters, Acceptance Criteria, permission/trust state, verification/review status, and Git baseline.
 - `plans/`: Goal, Acceptance Criteria, plan, and relevant project context.
 - `tasks/`: actionable task breakdown and progress when persistent task records are useful.
 - `specs/`: detailed design/specification artifacts when needed.
@@ -136,7 +175,7 @@ The detailed phase execution contract is defined by `skills/loop/SKILL.md`.
 
 ### INIT
 
-Load project context, inspect existing `.loop/` state, establish the Git baseline, and create or resume a valid run state.
+Load project context, inspect existing `.loop/` state, establish the Git baseline, and create or resume a valid run state and permission context.
 
 ### GOAL_REVIEW
 
@@ -144,7 +183,7 @@ Define Goal, Acceptance Criteria, verification strategy, and high-level plan. Pe
 
 ### WAITING_FOR_GOAL_CONFIRMATION
 
-Wait for explicit user approval. No implementation-file modifications are allowed.
+Evaluate the `beforeExecution` approval permission. At `low` trust, wait for explicit user approval. At a trust level that grants automatic approval, pass the gate without interactive confirmation. No implementation-file modifications are allowed in this phase.
 
 ### PLAN
 
@@ -152,7 +191,7 @@ Turn the confirmed Goal into actionable tasks, select relevant project skills, a
 
 ### IMPLEMENT
 
-Execute the current task according to project context and applicable skills. Respect project-specific test-first rules.
+Execute the current task according to project context and applicable skills. Respect project-specific test-first rules and capability permissions.
 
 ### VERIFY
 
@@ -164,15 +203,15 @@ Review Acceptance Criteria, Evidence, project rules, implementation quality, and
 
 ### READY_FOR_CONFIRMATION
 
-Present the result and evidence. Wait for required user acceptance.
+Evaluate the `beforeFinalize` approval permission. At `low` or `medium` trust, wait for the configured user acceptance. At `high` or `full` trust, the gate may be automatically accepted when all completion conditions pass. User rejection always sends the run to `FIX` with actionable feedback.
 
 ### DONE
 
-Terminal state. It requires all required Acceptance Criteria, passing applicable verification, passing Review, and required user acceptance.
+Terminal state. It requires all required Acceptance Criteria, passing applicable verification, passing Review, and the applicable final approval policy.
 
 ### BLOCKED
 
-Terminal state for unsafe continuation, invalid state/context, or configured safety limits. Preserve the state and evidence so a later explicit `/loop` can diagnose the reason.
+Terminal state for unsafe continuation, invalid state/context, denied permissions, or configured safety limits. Preserve the state and evidence so a later explicit `/loop` can diagnose the reason.
 
 ## State transitions
 
@@ -186,9 +225,9 @@ Failure paths are:
 - `REVIEW → FIX → IMPLEMENT`
 - `READY_FOR_CONFIRMATION → FIX → IMPLEMENT` after user rejection with actionable feedback
 
-Any active state may transition to `BLOCKED` when safe continuation is impossible or a configured limit is reached.
+Any active state may transition to `BLOCKED` when safe continuation is impossible, a required permission is denied, or a configured limit is reached.
 
-Never skip a confirmation gate or jump directly to `DONE`.
+Confirmation gates must be evaluated through the permission policy. A gate may be automatically passed only when the configured trust/approval policy explicitly allows it.
 
 ## Resume
 
@@ -196,10 +235,11 @@ If `.loop/state.yaml` contains a non-terminal active run:
 
 1. Load and validate the state.
 2. Validate the current project root and Git branch against recorded context.
-3. Read referenced plan/task/spec/evidence artifacts.
-4. Resume only from the persisted phase.
-5. Preserve run identity and counters.
-6. Enter `BLOCKED` instead of guessing when state or repository context is inconsistent.
+3. Validate persisted trust and approval state against the applicable Loop policy.
+4. Read referenced plan/task/spec/evidence artifacts.
+5. Resume only from the persisted phase.
+6. Preserve run identity and counters.
+7. Enter `BLOCKED` instead of guessing when state, permission, or repository context is inconsistent.
 
 Chat history is not a substitute for persisted Loop state.
 
@@ -231,7 +271,7 @@ An Agent's claim that something works is not sufficient Evidence. Failed Evidenc
 
 ## Safety
 
-Honor `loop/config.yaml` limits for iterations, fix attempts, and repeated failures. When a limit is reached, preserve the latest evidence and enter `BLOCKED` rather than continuing indefinitely.
+Honor `loop/config.yaml` limits for iterations, fix attempts, repeated failures, permissions, and high-risk actions. When a limit is reached or a required permission is denied, preserve the latest evidence and enter `BLOCKED` rather than continuing indefinitely.
 
 ## Business agnostic
 
