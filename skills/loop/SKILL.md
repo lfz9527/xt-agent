@@ -69,9 +69,47 @@ Scheduler 不得：
 
 当前 P2-10 只建立 Adapter Boundary，不绑定 cron parser、OS daemon 或桌面调度实现。未来不同调度器都必须通过该 Adapter 进入同一个 Runtime。
 
+## P2-12 Loop v1 Hardening
+
+P2-12 不增加新的状态机或第二套 Runtime，而是收紧已有边界，使 Loop v1 在并发、崩溃恢复和长期运行场景下保持可验证性。
+
+### Persistence Hardening
+
+- `runId` 在 State、Checkpoint、Mutation Journal、Audit Replay 文件边界统一执行安全校验，禁止路径穿越。
+- State / Checkpoint 写入使用唯一临时文件后再 `rename`，避免共享 `.tmp` 文件竞争。
+- 崩溃恢复识别遗留临时文件；多个候选只恢复最新候选并清理旧候选。
+- Mutation Journal 写入必须与其 Run 存储边界一致，禁止跨 Run 写入。
+- `.loop/runtime/history.jsonl` 是 Runtime Audit 唯一事实源；Replay Report 只能是派生结果。
+
+### Observer Hardening
+
+- `unsubscribe()` 必须真正停止后续事件投递。
+- Observer callback 属于非关键消费方；callback 抛错不能阻断 Audit Timeline、Runtime State 或主执行流程。
+- Observer 只能消费 Runtime Event，不能修改 Runtime State，也不能创建新的事实源。
+
+### Scheduler Hardening
+
+- 同一 interval Job 使用 single-flight：上一次 `RunService.run()` 未结束时，后续 tick 不会重入启动新的 Run。
+- Run 成功或失败后都释放该 Job 的执行占用，下一次 tick 可以继续。
+- single-flight 只约束 Scheduler Job 自身，不复制 Runtime 的 State Machine、Lock、Policy 或 Approval。
+
+### Adapter Contract
+
+```text
+/loop / CLI / Scheduler
+          ↓
+        Adapter
+          ↓
+      RunService
+          ↓
+      Loop Runtime
+```
+
+Adapter 只负责入口协议、参数校验和外部调度；Runtime 才是 State、Policy、Permission、Trust、Approval、Evidence、Mutation 和生命周期的唯一权威。
+
 ## 项目 Loop 工作区
 
-每个项目只需要一个根目录 `.loop/`。`.loop/` 是该项目所有 Loop 配置与运行产物的统一工作区。一个 Project 可以存在多个 Run；Run 不再通过项目级互斥锁串行化。
+每个项目只需要一个根目录 `.loop/`。`.loop/` 是该项目所有 Loop 配置与运行产物的统一工作区。一个 Project 可以存在多个 Run；Run 不通过项目级互斥锁串行化。
 
 ```text
 <project-root>
