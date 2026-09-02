@@ -1,9 +1,11 @@
 # Loop Evidence Schema。
-# 本文件描述一次运行产生的证据事实，不规定项目存储路径，也不描述 Trust。
+# 本文件描述一次运行产生的证据事实；具体存储路径由 Artifact Contract 统一规定。
 version: 1
 
 # Evidence 唯一标识。
 id: <evidence-id>
+# Evidence 所属的 Loop 运行 ID。
+runId: <run-id>
 # Evidence 对应的 Acceptance Criterion。
 criterion: <acceptance-criterion-id>
 # Evidence 类型：test 测试、command 命令、static 静态检查、runtime 运行时检查、review Review、manual 人工检查、other 其他。
@@ -19,13 +21,15 @@ command: null
 summary: <what was verified>
 # 命令或验证产生的原始输出；不需要保存时为空。
 output: null
-# 与 Evidence 关联的产物引用；具体存储由宿主 Runtime 管理。
+# 与 Evidence 关联的其他产物引用；具体存储由宿主 Runtime 管理。
 artifact: null
 
 # Evidence 产生时间。
 recordedAt: <timestamp>
 
 rules:
+  # Evidence 必须能够关联到一次 Loop 运行。
+  requireRunIdAssociation: true
   # Evidence 必须能够关联到验收标准或验证目标。
   requireCriterionAssociation: true
   # 失败 Evidence 也必须保留，便于 FIX 和审计。
