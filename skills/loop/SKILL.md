@@ -16,25 +16,31 @@ Loop 是通用的、有状态的 Agent 任务控制协议。Agent 负责工作�
 ├── .loop/
 │   ├── config.yaml
 │   ├── runtime/
+│   │   ├── state.yaml
+│   │   └── history.jsonl
 │   ├── plans/
+│   │   └── <run-id>.md
 │   ├── specs/
+│   │   └── <run-id>/
+│   │       └── <spec-id>.pecs.md
 │   ├── evidence/
+│   │   └── <run-id>/
+│   │       └── <evidence-id>.yaml
 │   └── reviews/
+│       └── <run-id>.md
 └── ...
 ```
 
-不同项目各自使用项目根目录下的 `.loop/`，运行产物不得跨项目共享。
+不同项目各自使用项目根目录下的 `.loop/`，运行产物不得跨项目共享。目录不存在时由 Runtime 按需创建；不要求项目预先创建空目录。
 
 ## `.loop/` 职责
 
 - `.loop/config.yaml`：项目 Trust、Permission、项目级 Policy。
 - `.loop/runtime/`：Loop Runtime 状态、运行历史等运行事实。
 - `.loop/plans/`：Loop 生成的 Plan 产物。
-- `.loop/specs/`：Loop 生成的 Spec / Pecs 产物。
+- `.loop/specs/`：Loop 生成的 Spec / PECS 产物。
 - `.loop/evidence/`：Loop 生成的 Evidence 产物。
 - `.loop/reviews/`：Loop 生成的 Review 产物。
-
-目录不存在时由 Runtime 按需创建；不要求项目预先创建空目录。
 
 引擎侧定义仍位于：
 
@@ -42,6 +48,7 @@ Loop 是通用的、有状态的 Agent 任务控制协议。Agent 负责工作�
 - `loop/policies/default.yaml`：引擎默认策略。
 - `loop/schemas/state.yaml`：Runtime 状态和合法转移。
 - `loop/schemas/evidence.yaml`：Evidence 数据模型。
+- `loop/schemas/artifact.yaml`：`.loop/` 产物目录和命名契约。
 
 ## 配置与运行时边界
 
@@ -171,12 +178,12 @@ Runtime 只记录一次运行的事实：
 .loop/
 ├── runtime/     # state / history
 ├── plans/       # Plan
-├── specs/       # Spec / Pecs
+├── specs/       # Spec / PECS
 ├── evidence/    # Evidence
 └── reviews/     # Review
 ```
 
-一次运行使用唯一 `run-id` 作为关联键。Plan、Spec、Evidence、Review 等产物必须能够通过 `run-id` 与 Runtime State 对应。
+一次运行使用唯一 `run-id` 作为关联键。Plan 使用 `<run-id>.md`；Spec / PECS 使用 `.loop/specs/<run-id>/<spec-id>.pecs.md`；Evidence 使用 `.loop/evidence/<run-id>/<evidence-id>.yaml`；Review 使用 `.loop/reviews/<run-id>.md`。所有产物必须能够通过 `run-id` 与 Runtime State 对应。
 
 Runtime **不得保存项目 Trust 或 Permission 的第二份配置**。
 
@@ -258,11 +265,11 @@ VERIFY / REVIEW / READY_FOR_CONFIRMATION
 
 ## PLAN
 
-根据已确定 Goal、项目规则和 Skills 形成可执行计划，并将 Plan 产物落盘到 `.loop/plans/`。
+根据已确定 Goal、项目规则和 Skills 形成可执行计划，并将 Plan 产物落盘到 `.loop/plans/<run-id>.md`。
 
 ## SPEC / PECS
 
-如果任务需要结构化 Spec 或 Pecs，在 Plan 阶段生成并落盘到 `.loop/specs/`。Spec / Pecs 必须关联当前 `run-id`，并作为后续 IMPLEMENT 与 VERIFY 的输入。
+如果任务需要结构化 Spec 或 PECS，在 Plan 阶段生成并落盘到 `.loop/specs/<run-id>/<spec-id>.pecs.md`。Spec / PECS 必须关联当前 `run-id`，并作为后续 IMPLEMENT 与 VERIFY 的输入。
 
 ## IMPLEMENT
 
@@ -272,7 +279,7 @@ VERIFY / REVIEW / READY_FOR_CONFIRMATION
 
 执行适用的项目原生验证。Verification 不得省略。
 
-将验证结果及其 Evidence 落盘到 `.loop/evidence/`，并在 Runtime State 中保存引用。
+将验证结果及其 Evidence 落盘到 `.loop/evidence/<run-id>/<evidence-id>.yaml`，并在 Runtime State 中保存引用。
 
 - pass → `REVIEW`
 - fail → `FIX`
@@ -282,7 +289,7 @@ VERIFY / REVIEW / READY_FOR_CONFIRMATION
 
 检查 Acceptance Criteria、Evidence、项目规则、实现质量、范围、回归风险和 Git Diff。
 
-Review 结果落盘到 `.loop/reviews/`。
+Review 结果落盘到 `.loop/reviews/<run-id>.md`。
 
 - pass → `READY_FOR_CONFIRMATION`
 - fail → `FIX`
@@ -307,7 +314,7 @@ Review 结果落盘到 `.loop/reviews/`。
 
 恢复时：
 
-1. 读取 `.loop/runtime/` 中的 Runtime 状态。
+1. 读取 `.loop/runtime/state.yaml`。
 2. 校验 State Schema。
 3. 确认项目根目录和 Git 上下文。
 4. 读取 `.loop/config.yaml`。
@@ -326,12 +333,14 @@ Acceptance Criteria
         ↓
 Verification / Review
         ↓
-.loop/evidence/
+.loop/evidence/<run-id>/
         ↓
 Completion Decision
 ```
 
 Agent 自己声称完成不能作为 Evidence。
+
+Evidence 数据结构遵循 `loop/schemas/evidence.yaml`，存储路径遵循 `loop/schemas/artifact.yaml`。
 
 ## Git Contract
 
