@@ -194,6 +194,43 @@ Gate 语义：
 
 因此 `/loop`、CLI 和未来 Scheduler 都可以共用同一套 Human Gate / Runtime，而不会形成第二套审批状态机。
 
+## P2-9 Skill → Runtime Adapter
+
+P2-9 将 `/loop` 从“入口契约”正式连接到 Runtime Adapter。Skill 不再承担生命周期实现，而是把 Agent 的生命周期意图委托给 `LoopSkillRuntimeAdapter`；该 Adapter 最终复用已有 `RunService`。
+
+```text
+/loop
+  ↓
+Loop Skill
+  ↓
+LoopSkillRuntimeAdapter
+  ↓
+RunService
+  ↓
+RunRuntime / Kernel / ExecutionRuntime
+  ↓
+Loop Runtime
+```
+
+Adapter 只接受两类生命周期请求：
+
+```text
+{ action: "run" }
+{ action: "resume", runId: "..." }
+```
+
+强制规则：
+
+- Skill 不创建第二套 State Machine。
+- Skill 不直接读取或修改 `.loop/runtime`。
+- Skill 不直接修改 `state.yaml`。
+- Skill 不实现 Policy、Permission、Trust、Approval、Lock、Mutation 或 Evidence 判断。
+- `resume` 必须携带明确 Run ID；空 Run ID 在进入 Runtime 前 `BLOCKED`。
+- Adapter 只负责入口协议映射和委托，不复制 Runtime 生命周期逻辑。
+- `/loop` 与 `loop CLI` 必须最终进入同一个 Runtime。
+
+因此 `/loop`、CLI 和未来 Scheduler 都是不同入口，**Loop Runtime 才是唯一生命周期权威。**
+
 ## Run 与 Resource
 
 Loop 不使用 Project 级 `run.lock`。Run 和资源锁是两个不同概念：
@@ -418,3 +455,4 @@ Agent 自己声称“完成”不能替代 Evidence。
 14. **CLI 是 Runtime Adapter，不是 Runtime 本身。**
 15. **Resume 必须从持久化 Runtime Facts 恢复，不能依赖聊天上下文。**
 16. **Human Gate 是 Runtime 权威边界，CLI 不能绕过 Gate。**
+17. **`/loop` Skill 是 Runtime Adapter 的 Agent 入口，不得形成第二套生命周期。**
