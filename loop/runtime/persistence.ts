@@ -21,19 +21,14 @@ export interface RuntimeAuditLog {
   append(event: RuntimeAuditEvent): void;
 }
 
-/**
- * 项目 `.loop/runtime/state.yaml` 的最小持久化实现。
- *
- * 文件内容使用 JSON 表示，因为 JSON 是 YAML 1.2 的合法子集；这样 Runtime
- * 不需要偷偷引入第二套 YAML 解析器，同时仍保持 `.yaml` 作为 Loop 的事实存储格式。
- * 所有写入均采用临时文件 + rename，避免进程崩溃留下半截 state。
- */
+/** 每个 Run 独立持有自己的 State；跨 Run 的事实只进入 append-only Audit Log。 */
 export class FileStateStore {
   private readonly statePath: string;
   private readonly tempPath: string;
 
-  constructor(private readonly workspace: string = '.loop') {
-    this.statePath = join(workspace, 'runtime', 'state.yaml');
+  constructor(private readonly workspace: string = '.loop', private readonly runId: string) {
+    if (!runId.trim()) throw new Error('[LOOP_BLOCKED] runId is required for FileStateStore');
+    this.statePath = join(workspace, 'runtime', 'runs', runId, 'state.yaml');
     this.tempPath = `${this.statePath}.tmp`;
   }
 
@@ -85,7 +80,9 @@ export class FileStateStore {
     if (state.schemaVersion !== RUNTIME_STATE_SCHEMA_VERSION) {
       throw new Error('[LOOP_BLOCKED] unsupported runtime state schema version');
     }
-    if (!state.runId || !state.status) throw new Error('[LOOP_BLOCKED] invalid persistent runtime state');
+    if (state.runId !== this.runId || !state.status) {
+      throw new Error('[LOOP_BLOCKED] invalid persistent runtime state for requested run');
+    }
     if (!Number.isInteger(state.policyRevision) || state.policyRevision < 1) {
       throw new Error('[LOOP_BLOCKED] invalid persistent policy revision');
     }
