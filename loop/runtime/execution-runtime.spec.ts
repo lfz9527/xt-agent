@@ -26,7 +26,7 @@ function harness(initial: LoopRuntimeState, results: Record<string, Partial<Loop
   const kernel = { transition: vi.fn((to: string) => { current = { ...current, status: to }; }) } as unknown as LoopRuntimeKernel;
   const executor: StageExecutor = { execute: vi.fn(async (stage) => ({ facts: results[stage] ?? {} })) };
   const runtime = new ExecutionRuntime(runs, kernel, () => store, executor, { maxFixAttempts });
-  return { runtime, executor, kernel, getState: () => current, setState: (next: LoopRuntimeState) => { current = next; } };
+  return { runtime, runs, executor, kernel, getState: () => current, setState: (next: LoopRuntimeState) => { current = next; } };
 }
 
 describe('ExecutionRuntime', () => {
@@ -62,12 +62,12 @@ describe('ExecutionRuntime', () => {
     expect(h.getState().facts.fixAttempts).toBe(1);
 
     h.setState({ ...h.getState(), status: 'FIX' });
-    const restarted = new ExecutionRuntime(h.runtime, h.kernel, () => ({ read: () => h.getState(), write: (next) => h.setState(next) }), h.executor, { maxFixAttempts: 2 });
+    const restarted = new ExecutionRuntime(h.runs, h.kernel, () => ({ read: () => h.getState(), write: (next) => h.setState(next) }), h.executor, { maxFixAttempts: 2 });
     await restarted.step('run-1');
     expect(h.getState().facts.fixAttempts).toBe(2);
 
     h.setState({ ...h.getState(), status: 'FIX' });
-    const exhausted = new ExecutionRuntime(h.runtime, h.kernel, () => ({ read: () => h.getState(), write: (next) => h.setState(next) }), h.executor, { maxFixAttempts: 2 });
+    const exhausted = new ExecutionRuntime(h.runs, h.kernel, () => ({ read: () => h.getState(), write: (next) => h.setState(next) }), h.executor, { maxFixAttempts: 2 });
     await exhausted.step('run-1');
     expect(h.getState().facts.fixAttempts).toBe(3);
     expect(h.getState().facts.fixAttemptsWithinLimit).toBe(false);
