@@ -11,7 +11,7 @@ export interface PersistedLoopRuntimeState extends LoopRuntimeState {
 export interface RuntimeAuditEvent {
   eventId: string;
   runId: string;
-  type: 'STATE_TRANSITION' | 'APPROVAL_REQUESTED' | 'APPROVAL_RESOLVED' | 'BLOCKED';
+  type: 'STATE_TRANSITION' | 'APPROVAL_REQUESTED' | 'APPROVAL_RESOLVED' | 'BLOCKED' | 'RESOURCE_MUTATION';
   at: string;
   policyRevision: number;
   payload: Record<string, unknown>;
@@ -19,6 +19,21 @@ export interface RuntimeAuditEvent {
 
 export interface RuntimeAuditLog {
   append(event: RuntimeAuditEvent): void;
+}
+
+export interface MutationJournalEntry {
+  mutationId: string;
+  runId: string;
+  resource: string;
+  capability: string;
+  at: string;
+  beforeWorktreeFingerprint: string;
+  afterWorktreeFingerprint: string;
+  result: 'committed' | 'failed';
+}
+
+export interface MutationJournal {
+  append(entry: MutationJournalEntry): void;
 }
 
 /** 每个 Run 独立持有自己的 State；跨 Run 的事实只进入 append-only Audit Log。 */
@@ -49,6 +64,7 @@ export class FileStateStore {
       status: parsed.status,
       policyRevision: parsed.policyRevision,
       snapshot: parsed.snapshot,
+      facts: parsed.facts,
     };
   }
 
@@ -89,6 +105,7 @@ export class FileStateStore {
     if (!state.snapshot || state.snapshot.runId !== state.runId || state.snapshot.policyRevision !== state.policyRevision) {
       throw new Error('[LOOP_BLOCKED] persistent policy snapshot does not match runtime state');
     }
+    if (!state.facts) throw new Error('[LOOP_BLOCKED] runtime facts are required');
   }
 }
 
@@ -103,6 +120,20 @@ export class JsonlRuntimeAuditLog implements RuntimeAuditLog {
   append(event: RuntimeAuditEvent): void {
     mkdirSync(dirname(this.historyPath), { recursive: true });
     appendFileSync(this.historyPath, `${JSON.stringify(event)}\n`, { encoding: 'utf8' });
+  }
+}
+
+/** Mutation Journal 是 Loop 对工作区变更归属的不可变记录。 */
+export class JsonlMutationJournal implements MutationJournal {
+  private readonly journalPath: string;
+
+  constructor(workspace: string = '.loop') {
+    this.journalPath = join(workspace, 'runtime', 'mutation-journal.jsonl');
+  }
+
+  append(entry: MutationJournalEntry): void {
+    mkdirSync(dirname(this.journalPath), { recursive: true });
+    appendFileSync(this.journalPath, `${JSON.stringify(entry)}\n`, { encoding: 'utf8' });
   }
 }
 
