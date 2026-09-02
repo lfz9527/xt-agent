@@ -22,8 +22,51 @@ state:
     - active.phase
     - verification.status
     - review.status
+    - permission.trust.level
 
-git:
+# Trust is the user's default authorization policy for Loop.
+# LOW is the secure default. Users may explicitly raise the level.
+trust:
+  level: low
+  levels:
+    low:
+      approval:
+        beforeExecution: required
+        beforeFinalize: required
+    medium:
+      approval:
+        beforeExecution: automatic
+        beforeFinalize: required
+    high:
+      approval:
+        beforeExecution: automatic
+        beforeFinalize: automatic
+    full:
+      approval:
+        beforeExecution: automatic
+        beforeFinalize: automatic
+
+permissions:
+  approval:
+    beforeExecution: required
+    beforeFinalize: required
+  filesystem:
+    read: allow
+    write: allow
+  shell:
+    execute: allow
+    dangerous: confirm
+  git:
+    read: allow
+    commit: confirm
+    push: confirm
+  network:
+    request: confirm
+
+# Trust levels may provide default approval behavior, but must not bypass
+# independent high-risk or safety policies.
+
+ git:
   captureBaselineAtInit: true
   recordBranch: true
   requireCleanBaseline: false
