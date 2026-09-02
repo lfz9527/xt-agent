@@ -17,7 +17,11 @@ export class FileStateStore {
     this.statePath = join(workspace, 'runtime', 'runs', runId, 'state.yaml'); this.tempPath = `${this.statePath}.tmp`;
   }
   read(): LoopRuntimeState {
-    const path = this.recoverPath(); if (!path) throw new Error('[LOOP_BLOCKED] persistent runtime state is missing');
+    const path = this.recoverPath();
+    if (!path) {
+      if (this.hasStateForAnotherRun()) throw new Error('[LOOP_BLOCKED] persistent runtime state belongs to another requested run');
+      throw new Error('[LOOP_BLOCKED] persistent runtime state is missing');
+    }
     let parsed: PersistedLoopRuntimeState;
     try { parsed = JSON.parse(readFileSync(path, 'utf8')) as PersistedLoopRuntimeState; } catch { throw new Error('[LOOP_BLOCKED] persistent runtime state is unreadable'); }
     this.validate(parsed);
@@ -33,6 +37,11 @@ export class FileStateStore {
     if (mainExists && tempExists) { if (statSync(this.tempPath).mtimeMs > statSync(this.statePath).mtimeMs) renameSync(this.tempPath, this.statePath); else unlinkSync(this.tempPath); }
     return mainExists || existsSync(this.statePath) ? this.statePath : undefined;
   }
+  private hasStateForAnotherRun(): boolean {
+    const runsRoot = join(this.workspace, 'runtime', 'runs');
+    if (!existsSync(runsRoot)) return false;
+    return requireRunDirectories(runsRoot).some((run) => run !== this.runId && existsSync(join(runsRoot, run, 'state.yaml')));
+  }
   private validate(state: PersistedLoopRuntimeState): void {
     if (state.schemaVersion !== RUNTIME_STATE_SCHEMA_VERSION) throw new Error('[LOOP_BLOCKED] unsupported runtime state schema version');
     if (state.runId !== this.runId || !state.status) throw new Error('[LOOP_BLOCKED] invalid persistent runtime state for requested run');
@@ -40,6 +49,11 @@ export class FileStateStore {
     if (!state.snapshot || state.snapshot.runId !== state.runId || state.snapshot.policyRevision !== state.policyRevision) throw new Error('[LOOP_BLOCKED] persistent policy snapshot does not match runtime state');
     if (!state.facts) throw new Error('[LOOP_BLOCKED] runtime facts are required');
   }
+}
+
+function requireRunDirectories(runsRoot: string): string[] {
+  // 延迟引入 fs.readdirSync，保持当前 persistence API 的最小依赖面。
+  return readFileSync(join(runsRoot, '.runs-index'), 'utf8').split('\n').filter(Boolean);
 }
 
 export class JsonlRuntimeAuditLog implements RuntimeAuditLog {
