@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -49,7 +49,6 @@ describe('RuntimeReplayReportStore', () => {
     workspaces.push(workspace);
     const store = new RuntimeReplayReportStore(workspace);
     const path = store.write(report);
-    const { writeFileSync } = require('node:fs') as typeof import('node:fs');
     writeFileSync(path, '{broken', 'utf8');
 
     expect(() => store.read('run-1')).toThrow('[LOOP_BLOCKED] replay report is invalid');
