@@ -7,6 +7,38 @@ description: Run the project Loop v1 workflow. This skill is ONLY activated by a
 
 Loop 是通用的、有状态的 Agent 任务控制协议。Agent 负责工作；Loop 负责生命周期、Policy Resolution、Permission、Trust、Approval、Safety、Resource Governance 和 Evidence。
 
+## Loop 入口初始化
+
+`/loop` 的第一步永远是初始化或恢复当前项目的 `.loop/` 工作区。Agent 不得在完成这一步之前创建 Plan、Spec、Evidence、Review 或其他 Loop 产物。
+
+### 初始化规则
+
+1. Resolve Project Root：优先使用 Git repository root；非 Git 项目使用当前工作目录。
+2. 检查 `<project-root>/.loop/` 是否存在。
+3. 不存在时，通过 Loop Runtime 的 Project Workspace Initializer 创建完整 `.loop/` 工作区。
+4. 已存在时执行同一个幂等初始化流程，补齐缺失的标准目录/文件，但不得覆盖已有项目配置、Runtime State 或 Loop 产物。
+5. 初始化/恢复成功后，才能创建 Run 并进入 Lifecycle。
+6. Skill 不自行实现 `.loop` 的文件创建逻辑；必须委托 Runtime 的 Project Workspace Initializer。
+
+标准项目工作区：
+
+```text
+<project-root>
+└── .loop/
+    ├── README.md
+    ├── config.yaml
+    ├── runtime/
+    │   ├── runs/<run-id>/state.yaml
+    │   ├── history.jsonl
+    │   └── locks/<resource>.lock
+    ├── plans/<run-id>.md
+    ├── specs/<run-id>/<spec-id>.pecs.md
+    ├── evidence/<run-id>/<evidence-id>.yaml
+    └── reviews/<run-id>.md
+```
+
+`.loop/` 是项目级唯一 Loop 工作区。不同项目不得共享 `.loop`，运行产物不得写入 Skill 安装目录、Loop 引擎源码目录或其他项目目录。
+
 ## P2-11 Run Event / Observer API
 
 Observer 是 Loop Runtime 的只读事件观察入口，用于 UI、CLI、Scheduler 和其他外部消费者观察 Run。
@@ -111,22 +143,7 @@ Adapter 只负责入口协议、参数校验和外部调度；Runtime 才是 Sta
 
 每个项目只需要一个根目录 `.loop/`。`.loop/` 是该项目所有 Loop 配置与运行产物的统一工作区。一个 Project 可以存在多个 Run；Run 不通过项目级互斥锁串行化。
 
-```text
-<project-root>
-├── .loop/
-│   ├── config.yaml
-│   ├── runtime/
-│   │   ├── runs/<run-id>/state.yaml
-│   │   ├── history.jsonl
-│   │   └── locks/<resource>.lock
-│   ├── plans/<run-id>.md
-│   ├── specs/<run-id>/<spec-id>.pecs.md
-│   ├── evidence/<run-id>/<evidence-id>.yaml
-│   └── reviews/<run-id>.md
-└── ...
-```
-
-不同项目各自使用项目根目录下的 `.loop/`，运行产物不得跨项目共享。目录不存在时由 Runtime 按需创建。
+不同项目各自使用项目根目录下的 `.loop/`，运行产物不得跨项目共享。目录不存在时由 Project Workspace Initializer 创建；初始化必须先于 Run 创建。
 
 ## Runtime Adapter 总体边界
 
@@ -149,12 +166,14 @@ Skill Adapter          CLI Adapter          Scheduler Adapter
 
 ## 配置与运行时边界
 
+- `.loop/README.md`：项目 Loop 工作区说明，由初始化器创建；已有文件不得被初始化器覆盖。
 - `.loop/config.yaml`：项目 Trust、Permission、项目级 Policy，唯一真实配置来源。
 - `.loop/runtime/runs/<run-id>/state.yaml`：每个 Run 独立的 Runtime State。
 - `.loop/runtime/history.jsonl`：跨 Run 的 append-only 审计事实，每条事件必须携带 Run ID。
 - `.loop/runtime/locks/`：资源级并发控制，不存在项目级 `run.lock`。
 - `loop/config.yaml`：引擎能力、固定工作流、默认限制和 Trust 等级语义。
 - `loop/schemas/`：State、Policy、Policy Snapshot、Evidence、Artifact 契约。
+- `loop/runtime/project-workspace.ts`：项目 `.loop/` 初始化/恢复边界。
 - `loop/runtime/enforcement.ts`：Runtime Enforcement 原语。
 - `loop/runtime/resource-policy.ts`：资源可修改性与 Capability 授权规则。
 - `loop/runtime/lock.ts`：资源级互斥锁。
