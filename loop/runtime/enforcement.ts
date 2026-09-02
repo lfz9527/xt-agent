@@ -59,6 +59,21 @@ export interface TransitionGuardContext {
   guards: Record<string, boolean>;
 }
 
+const ALLOWED_NEXT: Record<string, string[]> = {
+  INIT: ['GOAL_REVIEW', 'BLOCKED'],
+  GOAL_REVIEW: ['WAITING_FOR_GOAL_CONFIRMATION', 'BLOCKED'],
+  WAITING_FOR_GOAL_CONFIRMATION: ['PLAN', 'BLOCKED', 'PAUSED'],
+  PLAN: ['IMPLEMENT', 'BLOCKED', 'PAUSED'],
+  IMPLEMENT: ['VERIFY', 'BLOCKED', 'PAUSED'],
+  VERIFY: ['REVIEW', 'FIX', 'BLOCKED', 'PAUSED'],
+  REVIEW: ['READY_FOR_CONFIRMATION', 'FIX', 'BLOCKED', 'PAUSED'],
+  READY_FOR_CONFIRMATION: ['DONE', 'FIX', 'BLOCKED', 'PAUSED'],
+  FIX: ['IMPLEMENT', 'BLOCKED', 'PAUSED'],
+  PAUSED: ['WAITING_FOR_GOAL_CONFIRMATION', 'PLAN', 'IMPLEMENT', 'VERIFY', 'REVIEW', 'READY_FOR_CONFIRMATION', 'FIX', 'BLOCKED'],
+  DONE: [],
+  BLOCKED: [],
+};
+
 const REQUIRED_GUARDS: Record<string, string[]> = {
   'WAITING_FOR_GOAL_CONFIRMATION->PLAN': ['executionApprovalSatisfied'],
   'PLAN->IMPLEMENT': ['planArtifactExists'],
@@ -70,12 +85,20 @@ const REQUIRED_GUARDS: Record<string, string[]> = {
   'READY_FOR_CONFIRMATION->DONE': ['acceptancePassed', 'verificationPassed', 'reviewPassed', 'finalApprovalSatisfied'],
   'READY_FOR_CONFIRMATION->FIX': ['finalApprovalRejected'],
   'FIX->IMPLEMENT': ['fixAttemptsWithinLimit'],
-  'PAUSED->INIT': ['resumeRequested', 'resumeStateValid'],
+  'PAUSED->WAITING_FOR_GOAL_CONFIRMATION': ['resumeRequested', 'resumeStateValid'],
+  'PAUSED->PLAN': ['resumeRequested', 'resumeStateValid'],
+  'PAUSED->IMPLEMENT': ['resumeRequested', 'resumeStateValid'],
+  'PAUSED->VERIFY': ['resumeRequested', 'resumeStateValid'],
+  'PAUSED->REVIEW': ['resumeRequested', 'resumeStateValid'],
+  'PAUSED->READY_FOR_CONFIRMATION': ['resumeRequested', 'resumeStateValid'],
+  'PAUSED->FIX': ['resumeRequested', 'resumeStateValid'],
+  'PAUSED->BLOCKED': ['pauseExpired'],
 };
 
-/** State transition 不得通过直接修改 status 绕过 Gate。 */
+/** State transition 同时必须满足拓扑与 Guard，不能通过直接修改 status 绕过 Gate。 */
 export function enforceTransition(context: TransitionGuardContext): boolean {
   if (context.guards.policyRevisionMatch === false) return false;
+  if (!ALLOWED_NEXT[context.from]?.includes(context.to)) return false;
   const required = REQUIRED_GUARDS[`${context.from}->${context.to}`] ?? [];
   return required.every((guard) => context.guards[guard] === true);
 }
