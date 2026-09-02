@@ -27,6 +27,8 @@ export interface RuntimeFacts {
   fixAttemptsWithinLimit: boolean;
   resumeRequested: boolean;
   resumeStateValid: boolean;
+  /** PAUSED 前的合法 Runtime Status；用于 Resume 原位恢复。 */
+  pausedFromStatus: string | null;
   pauseExpired: boolean;
 }
 
