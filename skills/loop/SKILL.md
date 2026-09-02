@@ -237,6 +237,47 @@ confirm → 必须进入 Approval
 
 显式 `deny` 永远优先；Trust 不能绕过高风险、Secret、Production 或 Loop safety limits。
 
+## Human Approval Gate
+
+Human Gate 是 Runtime 权威边界，不是 Skill 或 CLI 自己维护的一套状态。
+
+当前有两个 Run 级 Gate：
+
+- `execution`：Run 位于 `WAITING_FOR_GOAL_CONFIRMATION` 时使用。
+- `final`：Run 位于 `READY_FOR_CONFIRMATION` 时使用。
+
+审批必须经过 `HumanApprovalGate`：
+
+```text
+/loop / CLI / future Scheduler
+          ↓
+   Human Approval Adapter
+          ↓
+   HumanApprovalGate
+          ↓
+   Policy Revision + Run State 校验
+          ↓
+   Runtime Facts + APPROVAL_RESOLVED
+```
+
+CLI 提供：
+
+```bash
+loop approve <run-id> --gate=execution
+loop approve <run-id> --gate=final
+loop reject <run-id> --gate=execution
+loop reject <run-id> --gate=final
+```
+
+强制规则：
+
+- 不得直接修改 `state.yaml` 的 approval facts。
+- Gate 不活跃时必须 `BLOCKED`。
+- Run ID、Snapshot 或 Policy Revision 不匹配时必须 `BLOCKED`。
+- Resolution 必须记录 `APPROVAL_RESOLVED` Audit Event。
+- `approve` 只解决 Gate，不代表自动执行下一阶段；后续仍必须通过 State Transition Guard。
+- `reject` 不等于 Runtime 直接删除或回滚工作；最终行为由 State Machine 和 Runtime 决定。
+
 ## Lifecycle
 
 ```text
@@ -251,55 +292,35 @@ VERIFY / REVIEW / READY_FOR_CONFIRMATION → FIX → IMPLEMENT
 
 需要人工等待或外部依赖时进入 `PAUSED`；安全阻断进入 `BLOCKED`。
 
-## P2-6 / P2-7 Runtime Adapter
+## Runtime Adapter
 
-CLI 是 Runtime Adapter，不是 Runtime 本身。Adapter 只能调用 Runtime API，不能复制 State Machine、Policy、Permission、Trust、Approval、Lock、Mutation 或 Evidence 逻辑。
-
-P2-6 当前开放：
-
-```bash
-loop replay <run-id>
-loop replay <run-id> --json
-```
-
-P2-7 新增：
-
-```bash
-loop run
-loop resume <run-id>
-```
-
-`loop run` 必须调用 `RunRuntime.createRun()`，再交给 `ExecutionRuntime.runUntilHalt()`；`loop resume` 必须调用 `RunRuntime.resume()`，从持久化 `facts.pausedFromStatus` 获取恢复目标，并通过 `LoopRuntimeKernel.transition()` 重新进入 State Machine。
+CLI、`/loop` Skill 和未来 Scheduler 都是 Runtime 的入口适配层，而不是 Runtime 本身。
 
 ```text
-CLI
- ↓
-RunService
- ├── RunRuntime.createRun()
- │       ↓
- │   Runtime State + Policy Snapshot + Git Baseline
- └── ExecutionRuntime.runUntilHalt()
+/loop
+  ↓
+Loop Skill
+  ↓
+Runtime Adapter / RunService
+  ↓
+Loop Runtime
 
-CLI
- ↓
-RunService.resume(run-id)
- ↓
-RunRuntime.resume()
- ↓
-Kernel.transition(persisted pausedFromStatus)
- ↓
-ExecutionRuntime.runUntilHalt()
+loop run / resume / approve / reject / replay
+  ↓
+CLI Adapter
+  ↓
+Runtime Service
+  ↓
+Loop Runtime
 ```
 
-`pausedFromStatus` 必须持久化在 Run State 中。禁止根据 `facts` 猜测恢复位置，也禁止使用聊天历史恢复 Runtime。
-
-P2-7 的 Adapter 错误必须保持非零：缺少 run-id、非法参数、Runtime Blocked、Policy Revision mismatch、缺少恢复目标或状态损坏均不能转换成成功。
+因此 `/loop` 仍然是 Agent / 用户入口；CLI 只是增加机器调用入口，两者最终必须汇聚到同一个 Runtime，不允许形成第二套状态机或审批状态。
 
 ## INIT / Resume
 
 INIT：定位项目根目录 → 加载规则 → 读取 `.loop/config.yaml` → 创建 Run ID → 创建该 Run 的 Runtime State → 捕获 Git baseline → 解析 Policy → 生成 Snapshot / Revision → 原子持久化初始 State。
 
-Resume：读取对应 Run 的持久化 State → 必须先通过 Schema / Snapshot / Run ID 校验 → 校验项目和 Git 上下文 → 重新解析当前 Policy → 比较 Revision → Revision mismatch 则 `BLOCKED` → 校验该 Run 的 Plan / Spec / Evidence / Review → 从持久化 `pausedFromStatus` 恢复原状态 → 通过 Kernel Transition Guard 继续执行。
+Resume：读取对应 Run 的持久化 State → 必须先通过 Schema / Snapshot / Run ID 校验 → 校验项目和 Git 上下文 → 重新解析当前 Policy → 比较 Revision → Revision mismatch 则 `BLOCKED` → 校验该 Run 的 Plan / Spec / Evidence / Review → 通过 Transition Guard 恢复。
 
 不得依赖聊天历史猜测 Runtime 状态。
 
