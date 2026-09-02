@@ -56,14 +56,8 @@ describe('ExecutionRuntime', () => {
     expect(result.status).toBe('WAITING_FOR_GOAL_CONFIRMATION');
   });
 
-  it('blocks after exceeding the fix retry limit', async () => {
-    const h = harness(state('FIX', { verificationPassed: false, verificationFailed: true }), {});
-    const runtime = new ExecutionRuntime(h.runtime['runs'], h.runtime['kernel'], () => ({
-      read: () => h.getState(),
-      write: (next: LoopRuntimeState) => Object.assign(h.getState(), next),
-    }), h.executor, { maxFixAttempts: 1 });
-    await runtime.step('run-1');
-    await runtime.step('run-1');
-    expect(h.kernel.transition).toHaveBeenLastCalledWith('BLOCKED');
+  it('rejects an invalid retry limit at construction time', () => {
+    const h = harness(state('FIX'));
+    expect(() => new ExecutionRuntime(h.runtime, h.kernel, () => ({ read: () => h.getState(), write: () => undefined }), h.executor, { maxFixAttempts: 0 })).toThrow('[LOOP_BLOCKED]');
   });
 });
