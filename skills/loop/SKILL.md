@@ -7,6 +7,40 @@ description: Run the project Loop v1 workflow. This skill is ONLY activated by a
 
 Loop 是通用的、有状态的 Agent 任务控制协议。Agent 负责工作；Loop 负责生命周期、Policy Resolution、Permission、Trust、Approval、Safety、Resource Governance 和 Evidence。
 
+## P2-10 Scheduler Adapter
+
+Scheduler 是 Loop Runtime 的时间入口，不是 Runtime 本身。
+
+```text
+Scheduler / cron / OS timer
+          ↓
+SchedulerRuntimeAdapter
+          ↓
+RunService.run()
+          ↓
+RunRuntime / Kernel / ExecutionRuntime
+          ↓
+Loop Runtime
+```
+
+Scheduler Adapter 只负责：
+
+- 注册一次性或固定间隔触发。
+- 校验 Job ID 和调度参数。
+- 防止同一 Job ID 重复注册。
+- 取消任务。
+- 触发时委托共享 `RunService.run()`。
+
+Scheduler 不得：
+
+- 直接创建或修改 `.loop/runtime/runs/<run-id>/state.yaml`。
+- 实现第二套 State Machine。
+- 实现 Policy、Permission、Trust、Approval 或 Evidence。
+- 自行判断 Run 是否允许执行。
+- 绕过 Runtime 创建 Run。
+
+当前 P2-10 只建立 Adapter Boundary，不绑定 cron parser、OS daemon 或桌面调度实现。未来不同调度器都必须通过该 Adapter 进入同一个 Runtime。
+
 ## 项目 Loop 工作区
 
 每个项目只需要一个根目录 `.loop/`。`.loop/` 是该项目所有 Loop 配置与运行产物的统一工作区。一个 Project 可以存在多个 Run；Run 不再通过项目级互斥锁串行化。
@@ -27,6 +61,21 @@ Loop 是通用的、有状态的 Agent 任务控制协议。Agent 负责工作�
 ```
 
 不同项目各自使用项目根目录下的 `.loop/`，运行产物不得跨项目共享。目录不存在时由 Runtime 按需创建。
+
+## Runtime Adapter 总体边界
+
+```text
+/loop                     CLI                    Scheduler
+  ↓                        ↓                         ↓
+Skill Adapter          CLI Adapter          Scheduler Adapter
+  └──────────────────────────┬──────────────────────┘
+                             ↓
+                         RunService
+                             ↓
+                         Loop Runtime
+```
+
+所有 Adapter 都只能表达入口意图；Runtime 才是生命周期、状态、权限、审批和安全边界的唯一权威。
 
 ## 配置与运行时边界
 
@@ -53,7 +102,7 @@ Resource Policy
     ↓
 Capability
     ↓
-当前 Run 是否拥有修改该资源的能力？
+当前 Run 是否拥有该资源的修改能力？
     ↓
 Approval
     ↓
@@ -66,180 +115,9 @@ Resource Lock
 Mutation
 ```
 
-### Resource Policy
-
-资源分为：
-
-- `readonly`：只能读取，任何 Mutation 都拒绝。
-- `mutable`：允许修改，但必须命中明确的 `allowedCapabilities`。
-- `protected`：默认禁止修改；只有明确授权的特权 Capability 可以修改。
-
-Lock **不负责决定资源能不能修改**。Resource Policy 才是“可修改性”的事实来源。
-
-默认资源策略包括：
-
-- `working-tree`：`mutable`，允许代码、测试和普通产物修改。
-- `.loop/config.yaml`：`protected`，仅 `loop.policy.modify` 可修改。
-- `.loop/policies`：`protected`，仅 `loop.policy.modify` 可修改。
-- `.loop/schemas`：`protected`，仅 `loop.schema.modify` 可修改。
-- `.git`：`readonly`，禁止直接 Mutation。
-
-### Resource Lock
-
-Resource Lock 只解决并发问题：
-
-```text
-Run A → working-tree/src-a.lock → MODIFY
-Run B → working-tree/src-b.lock → MODIFY
-Run C → working-tree/src-a.lock → BLOCKED / WAIT
-```
-
-因此多个 Run 可以同时进行分析、Plan、Review，甚至修改互不冲突的资源；只有同一资源的竞争修改需要互斥。
-
-禁止重新引入 `.loop/runtime/run.lock` 这种 Project 级 Run Mutex。
-
-### Run ID
-
-Run ID 是独立执行上下文的稳定身份，用于：
-
-- 绑定独立 Runtime State。
-- 绑定 Plan / Spec / Evidence / Review 产物。
-- 绑定 Policy Snapshot 与 Approval Event。
-- 作为 Resource Lock 的 owner。
-- 在 Audit Log 中追踪完整生命周期。
-
-Run ID 不是项目锁的持有人 ID。
-
-## Runtime Enforcement
-
-所有 Capability 执行、Resource Mutation 和 State Transition 都必须先经过 `LoopRuntimeKernel`。
-
-### Capability
-
-执行 Capability 前必须提供：Run ID、Policy Snapshot、Snapshot Revision、当前 Policy Revision、Capability Decision 和 Approval Decision。
-
-强制执行链：
-
-```text
-Kernel.executeCapability()
-       ↓
-Run / Snapshot 校验
-       ↓
-Policy Revision Match
-       ↓
-Capability Decision
-       ↓
-Security / Dangerous Check
-       ↓
-Approval Decision
-       ↓
-ALLOW → CapabilityExecutor.execute()
-CONFIRM → ApprovalProvider → 记录 Approval Event → 重新校验 Revision → Executor
-DENY / BLOCKED → 不调用 Executor + 记录 BLOCKED Event
-```
-
-### Resource Mutation
-
-实际修改资源必须走：
-
-```text
-Kernel.mutateResource()
-       ↓
-Resource Policy
-       ↓
-Capability allowed?
-       ↓
-Resource Lock
-       ↓
-Mutation Executor
-       ↓
-Release Lock
-```
-
-强制规则：
-
-- `readonly` 永远不能 Mutation。
-- `mutable` 只有声明过的 Capability 可以 Mutation。
-- `protected` 只有显式特权 Capability 可以 Mutation。
-- Mutation 没有 Resource Lock 时必须 `BLOCKED`。
-- Lock owner 必须是当前 Run；其他 Run 不得释放或冒用。
-- Lock 存在且无法确认所有权时必须保持阻断，不得猜测或强制抢占。
-- Resource Policy 与 Resource Lock 不得互相替代。
-
-## State Transition
-
-State 更新不得直接写入 `status`。必须调用 `LoopRuntimeKernel.transition()`，由 Kernel 先验证 Revision、允许拓扑和对应 Transition Guards，再写入当前 Run 的 StateStore。
-
-```text
-Current Run State
-    ↓
-Kernel.transition()
-    ↓
-Policy Revision Match
-    ↓
-Allowed Transition
-    ↓
-Transition Guard
-    ↓
-Atomic StateStore.write()
-    ↓
-STATE_TRANSITION Audit Event
-```
-
-P1.5 Runtime 至少强制：
-
-- `WAITING_FOR_GOAL_CONFIRMATION → PLAN`：执行前 Approval + Revision Match。
-- `PLAN → IMPLEMENT`：Plan Artifact 存在。
-- `IMPLEMENT → VERIFY`：Implementation Completed。
-- `VERIFY → REVIEW`：Verification Passed。
-- `VERIFY → FIX`：Verification Failed。
-- `REVIEW → READY_FOR_CONFIRMATION`：Review Passed。
-- `REVIEW → FIX`：Review Failed。
-- `READY_FOR_CONFIRMATION → DONE`：Acceptance、Verification、Review 和 Final Approval 全部满足，并且 Revision Match。
-- `FIX → IMPLEMENT`：Fix 次数未超过限制。
-- `PAUSED` 只能通过合法 Resume Transition 恢复。
-- `BLOCKED` 不允许原地 Resume。
-
-## Persistent State / Crash Recovery
-
-- 每个 Run 的唯一 Runtime State 应位于 `.loop/runtime/runs/<run-id>/state.yaml`。
-- State 文件必须包含 `schemaVersion`；未知版本必须 `BLOCKED`，不能猜测兼容。
-- State 写入必须采用临时文件 + atomic rename，禁止直接覆盖生产 State。
-- `.loop/runtime/history.jsonl` 是跨 Run 的 append-only Runtime Audit Log；历史事件不得通过重写 State 伪造。
-- Approval、State Transition 和 BLOCKED 事实必须带唯一 Event ID、Run ID、时间和 Policy Revision。
-- `.loop/` 下的持久化文件不是 Agent 的第二套权限配置；Policy 真相仍只有项目 `.loop/config.yaml`。
-
-## PAUSED / BLOCKED
-
-- `PAUSED` 是可恢复等待态；恢复必须由 Runtime 校验原状态、Snapshot / Policy Revision 和产物完整性。
-- `BLOCKED` 是安全终止态；不得原地 Resume。
-- Policy Revision mismatch、无法解析 Policy、非法 Transition、资源权限拒绝或资源锁冲突都不得伪装成成功。
-
-## Policy Revision
-
-Policy Revision 必须是正整数，并且策略发生变更时只能递增。Runtime 不接受相同或更低 Revision 作为更新结果。
-
-Policy Snapshot 在 Run 创建后视为只读。项目策略发生变化时，必须重新解析并生成新的 Snapshot；已经发生的 Approval Event 不会被旧配置倒推修改。
-
-## Trust / Permission / Approval
-
-Trust 是项目属性，不是 Runtime 属性，也不是 Agent 自己可以提升的权限。
-
-Permission 决定 Capability 能否执行；Trust 只影响 Trust-controlled Approval Gate 的默认人工参与程度。
-
-Capability Decision：
-
-```text
-deny    → 终止
-allow   → 进入 Gate
-confirm → 必须进入 Approval
-```
-
-显式 `deny` 永远优先；Trust 不能绕过高风险、Secret、Production 或 Loop safety limits。
-
 ## Human Approval Gate
 
-Human Gate 是 Runtime 权威边界，不是 Skill 或 CLI 自己维护的一套状态。
+Human Gate 是 Runtime 权威边界，不是 Skill、CLI 或 Scheduler 自己维护的一套状态。
 
 当前有两个 Run 级 Gate：
 
@@ -249,7 +127,7 @@ Human Gate 是 Runtime 权威边界，不是 Skill 或 CLI 自己维护的一套
 审批必须经过 `HumanApprovalGate`：
 
 ```text
-/loop / CLI / future Scheduler
+/loop / CLI / Scheduler
           ↓
    Human Approval Adapter
           ↓
@@ -259,24 +137,6 @@ Human Gate 是 Runtime 权威边界，不是 Skill 或 CLI 自己维护的一套
           ↓
    Runtime Facts + APPROVAL_RESOLVED
 ```
-
-CLI 提供：
-
-```bash
-loop approve <run-id> --gate=execution
-loop approve <run-id> --gate=final
-loop reject <run-id> --gate=execution
-loop reject <run-id> --gate=final
-```
-
-强制规则：
-
-- 不得直接修改 `state.yaml` 的 approval facts。
-- Gate 不活跃时必须 `BLOCKED`。
-- Run ID、Snapshot 或 Policy Revision 不匹配时必须 `BLOCKED`。
-- Resolution 必须记录 `APPROVAL_RESOLVED` Audit Event。
-- `approve` 只解决 Gate，不代表自动执行下一阶段；后续仍必须通过 State Transition Guard。
-- `reject` 不等于 Runtime 直接删除或回滚工作；最终行为由 State Machine 和 Runtime 决定。
 
 ## Lifecycle
 
@@ -291,65 +151,6 @@ VERIFY / REVIEW / READY_FOR_CONFIRMATION → FIX → IMPLEMENT
 ```
 
 需要人工等待或外部依赖时进入 `PAUSED`；安全阻断进入 `BLOCKED`。
-
-## P2-9 Skill → Runtime Adapter
-
-`/loop` 是 Agent / 用户入口，但不拥有 Loop 生命周期。P2-9 将 Skill 入口正式绑定到 `LoopSkillRuntimeAdapter`，由 Adapter 把 Skill 请求委托给已经存在的 `RunService`。
-
-```text
-/loop
-  ↓
-Loop Skill
-  ↓
-LoopSkillRuntimeAdapter
-  ↓
-RunService
-  ↓
-RunRuntime / Kernel / ExecutionRuntime
-  ↓
-Loop Runtime
-```
-
-Adapter 只允许两类生命周期意图：
-
-```text
-{ action: "run" }
-{ action: "resume", runId: "..." }
-```
-
-强制规则：
-
-- Skill 不得创建第二套 State Machine。
-- Skill 不得直接读取或修改 `.loop/runtime`。
-- Skill 不得直接修改 `state.yaml`。
-- Skill 不得自行实现 Policy、Permission、Trust、Approval、Lock、Mutation 或 Evidence 判断。
-- `resume` 必须携带明确 Run ID；空 Run ID 在进入 Runtime 前直接 `BLOCKED`。
-- Adapter 只能委托给 Runtime Service，不能复制 Runtime 生命周期逻辑。
-- `/loop` 与 `loop CLI` 必须最终进入同一个 Runtime，不能产生两套状态。
-
-因此 `/loop`、CLI 和未来 Scheduler 都只是不同入口；**Loop Runtime 是唯一生命周期权威。**
-
-## Runtime Adapter
-
-CLI、`/loop` Skill 和未来 Scheduler 都是 Runtime 的入口适配层，而不是 Runtime 本身。
-
-```text
-/loop                         CLI
-  ↓                             ↓
-LoopSkillRuntimeAdapter     CLI Adapter
-  ↓                             ↓
-RunService / Runtime Service
-          ↓
-      Loop Runtime
-```
-
-## INIT / Resume
-
-INIT：定位项目根目录 → 加载规则 → 读取 `.loop/config.yaml` → 创建 Run ID → 创建该 Run 的 Runtime State → 捕获 Git baseline → 解析 Policy → 生成 Snapshot / Revision → 原子持久化初始 State。
-
-Resume：读取对应 Run 的持久化 State → 必须先通过 Schema / Snapshot / Run ID 校验 → 校验项目和 Git 上下文 → 重新解析当前 Policy → 比较 Revision → Revision mismatch 则 `BLOCKED` → 校验该 Run 的 Plan / Spec / Evidence / Review → 通过 Transition Guard 恢复。
-
-不得依赖聊天历史猜测 Runtime 状态。
 
 ## VERIFY / REVIEW / DONE
 
