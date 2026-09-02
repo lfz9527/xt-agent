@@ -9,12 +9,13 @@ workspace:
 
 artifacts:
   runtime:
-    # Runtime 基础设施；每次 Run 的状态、Snapshot、Mutation Journal 独立存储。
+    # Runtime 基础设施；每次 Run 的状态、Snapshot、Mutation Journal、Replay Report 独立存储。
     directory: runtime
     runsDirectory: runtime/runs/<run-id>
     state: runtime/runs/<run-id>/state.yaml
     policySnapshot: runtime/runs/<run-id>/policy-snapshot.yaml
     mutationJournal: runtime/runs/<run-id>/mutation-journal.jsonl
+    replayReport: runtime/runs/<run-id>/replay-report.json
     history: runtime/history.jsonl
     locks: runtime/locks
   plans:
@@ -43,3 +44,5 @@ rules:
   stateTransitionRequiresRunLock: true
   mutationRequiresGitBaseline: true
   mutationRequiresJournal: true
+  replayReportIsDerivedArtifact: true
+  replayReportSourceOfTruth: runtime/history.jsonl
