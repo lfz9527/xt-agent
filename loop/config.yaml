@@ -1,6 +1,6 @@
 # Loop 引擎定义配置。
 # 本文件只描述引擎能力、默认限制和固定安全规则，不保存具体项目配置。
-# 每个项目的实际 Loop 配置统一来自项目根目录唯一的 `.loop` 文件。
+# 项目的实际配置与运行产物统一落在项目根目录 `.loop/` 工作区。
 version: 1
 
 engine:
@@ -78,5 +78,5 @@ completion:
   requireReviewPass: true
 
 persistence:
-  # Runtime 持久化由宿主运行时负责，项目配置不规定具体文件或目录。
-  runtimeManaged: true
+  # Loop 产物统一由项目 `.loop/` 工作区承载；具体目录由 Runtime Artifact Contract 定义。
+  workspace: .loop
