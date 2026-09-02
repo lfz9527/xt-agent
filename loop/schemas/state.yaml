@@ -61,6 +61,8 @@ facts:
   fixAttemptsWithinLimit: true
   resumeRequested: false
   resumeStateValid: false
+  # PAUSED 前的合法 Runtime Status；Resume 必须从持久化事实恢复，不能猜测。
+  pausedFromStatus: null
   pauseExpired: false
 
 criteria:
