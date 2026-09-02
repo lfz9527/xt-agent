@@ -81,7 +81,10 @@ describe('LoopRuntimeKernel', () => {
 
   it('releases the state lock when a guarded transition fails', () => {
     const { kernel, state } = fixture();
-    expect(() => kernel.transition('VERIFY')).toThrow('LOOP_BLOCKED');
+    expect(() => kernel.transition('VERIFY')).not.toThrow();
+    state.facts.implementationCompleted = false;
+    expect(() => kernel.transition('REVIEW')).toThrow('LOOP_BLOCKED');
+    state.status = 'IMPLEMENT';
     state.facts.implementationCompleted = true;
     expect(() => kernel.transition('VERIFY')).not.toThrow();
   });
@@ -104,7 +107,7 @@ describe('LoopRuntimeKernel', () => {
     expect(execute).not.toHaveBeenCalled();
   });
 
-  it('rejects a resource mutation before acquiring the lock when policy denies it', async () => {
+  it('rejects a resource mutation by policy before checking mutation preconditions or acquiring the lock', async () => {
     const { state, policy } = fixture();
     const baseline = captureGitBaseline(process.cwd());
     state.gitBaseline = baseline;
