@@ -58,6 +58,11 @@ describe('RuntimeAuditReplay', () => {
     rmSync(workspace, { recursive: true, force: true });
   });
 
+  it('blocks unsafe run ids before reading history', () => {
+    expect(() => new RuntimeAuditReplay(workspace).read('../run-1')).toThrow('[LOOP_BLOCKED] invalid runId for audit replay');
+    expect(() => new RuntimeAuditReplay(workspace).read('run/1')).toThrow('[LOOP_BLOCKED] invalid runId for audit replay');
+  });
+
   it('returns an empty replay when no history exists', () => {
     rmSync(workspace, { recursive: true, force: true });
     expect(new RuntimeAuditReplay(workspace).replay('run-1')).toEqual({
