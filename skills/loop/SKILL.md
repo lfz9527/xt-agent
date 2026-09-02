@@ -17,7 +17,7 @@ Loop 是通用的、有状态的 Agent 任务控制协议。Agent 负责工作�
 2. 检查 `<project-root>/.loop/` 是否存在。
 3. 不存在时，通过 Loop Runtime 的 Project Workspace Initializer 创建完整 `.loop/` 工作区。
 4. 已存在时执行同一个幂等初始化流程，补齐缺失的标准目录/文件，但不得覆盖已有项目配置、Runtime State 或 Loop 产物。
-5. 初始化/恢复成功后，才能创建 Run 并进入 Lifecycle。
+5. 初始化/恢复成功后，必须把解析出的 Project Workspace 作为整个 Runtime 的唯一持久化边界，再创建 Run。
 6. Skill 不自行实现 `.loop` 的文件创建逻辑；必须委托 Runtime 的 Project Workspace Initializer。
 
 标准项目工作区：
@@ -38,6 +38,34 @@ Loop 是通用的、有状态的 Agent 任务控制协议。Agent 负责工作�
 ```
 
 `.loop/` 是项目级唯一 Loop 工作区。不同项目不得共享 `.loop`，运行产物不得写入 Skill 安装目录、Loop 引擎源码目录或其他项目目录。
+
+## Project Root → Runtime Persistence
+
+Project Root 一旦解析完成，所有文件型 Runtime 持久化组件必须从同一个 `ProjectLoopWorkspace` 创建，禁止各组件自行以 `process.cwd()` 解析 `.loop`。
+
+```text
+ProjectLoopWorkspaceInitializer.ensure()
+                ↓
+       ProjectLoopWorkspace
+                ↓
+     ProjectLoopRuntimeWorkspace
+       ↙       ↓       ↘
+ StateStore  ArtifactStore  AuditLog
+       ↓          ↓            ↓
+ .loop/runtime  .loop/*     .loop/runtime/history.jsonl
+```
+
+`ProjectLoopRuntimeWorkspace` 是统一持久化 wiring：
+
+- `stateStore(runId)` → `<project-root>/.loop/runtime/runs/<run-id>/state.yaml`
+- `artifactStore()` → `<project-root>/.loop/plans|specs|evidence|reviews`
+- `auditLog()` → `<project-root>/.loop/runtime/history.jsonl`
+- `mutationJournal(runId)` → `<project-root>/.loop/runtime/runs/<run-id>/mutation-journal.jsonl`
+- `checkpointStore()` → `<project-root>/.loop/runtime/runs/<run-id>/checkpoint.json`
+
+`RunRuntime`、`ExecutionRuntime`、`LoopRuntimeKernel` 使用这些组件时必须传入同一个 `.loop` workspace。不得出现“Initializer 写 Git 根目录 `.loop`，Store 却按当前 cwd 写另一份 `.loop`”的情况。
+
+从 Git repository 子目录启动 `/loop` 时，所有上述路径仍必须指向 repository root 下的同一个 `.loop`。
 
 ## P2-11 Run Event / Observer API
 
@@ -112,6 +140,7 @@ P2-12 不增加新的状态机或第二套 Runtime，而是收紧已有边界，
 - 崩溃恢复识别遗留临时文件；多个候选只恢复最新候选并清理旧候选。
 - Mutation Journal 写入必须与其 Run 存储边界一致，禁止跨 Run 写入。
 - `.loop/runtime/history.jsonl` 是 Runtime Audit 唯一事实源；Replay Report 只能是派生结果。
+- StateStore、ArtifactStore、AuditLog、MutationJournal、CheckpointStore 必须使用同一个 Project Root 解析出的 `.loop` workspace。
 
 ### Observer Hardening
 
@@ -143,7 +172,7 @@ Adapter 只负责入口协议、参数校验和外部调度；Runtime 才是 Sta
 
 每个项目只需要一个根目录 `.loop/`。`.loop/` 是该项目所有 Loop 配置与运行产物的统一工作区。一个 Project 可以存在多个 Run；Run 不通过项目级互斥锁串行化。
 
-不同项目各自使用项目根目录下的 `.loop/`，运行产物不得跨项目共享。目录不存在时由 Project Workspace Initializer 创建；初始化必须先于 Run 创建。
+不同项目各自使用项目根目录下的 `.loop`，运行产物不得跨项目共享。目录不存在时由 Project Workspace Initializer 创建；初始化必须先于 Run 创建。
 
 ## Runtime Adapter 总体边界
 
@@ -174,6 +203,7 @@ Skill Adapter          CLI Adapter          Scheduler Adapter
 - `loop/config.yaml`：引擎能力、固定工作流、默认限制和 Trust 等级语义。
 - `loop/schemas/`：State、Policy、Policy Snapshot、Evidence、Artifact 契约。
 - `loop/runtime/project-workspace.ts`：项目 `.loop/` 初始化/恢复边界。
+- `loop/runtime/project-runtime-workspace.ts`：把同一个 Project Workspace 注入 State、Artifact、Audit、Mutation Journal 和 Checkpoint 持久化组件。
 - `loop/runtime/enforcement.ts`：Runtime Enforcement 原语。
 - `loop/runtime/resource-policy.ts`：资源可修改性与 Capability 授权规则。
 - `loop/runtime/lock.ts`：资源级互斥锁。
