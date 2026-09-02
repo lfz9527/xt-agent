@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { FileStateStore, JsonlRuntimeAuditLog } from './persistence';
 
@@ -47,7 +47,7 @@ describe('JsonlRuntimeAuditLog', () => {
     const log = new JsonlRuntimeAuditLog(workspace);
     log.append({ eventId: 'evt-1', runId: 'run-1', type: 'STATE_TRANSITION', at: '2026-09-02T00:00:00.000Z', policyRevision: 3, payload: { to: 'PLAN' } });
     log.append({ eventId: 'evt-2', runId: 'run-1', type: 'APPROVAL_RESOLVED', at: '2026-09-02T00:00:01.000Z', policyRevision: 3, payload: { decision: 'approved' } });
-    const lines = require('node:fs').readFileSync(join(workspace, 'runtime', 'history.jsonl'), 'utf8').trim().split('\n');
+    const lines = readFileSync(join(workspace, 'runtime', 'history.jsonl'), 'utf8').trim().split('\n');
     expect(lines).toHaveLength(2);
     expect(JSON.parse(lines[0]).eventId).toBe('evt-1');
     expect(JSON.parse(lines[1]).eventId).toBe('evt-2');
