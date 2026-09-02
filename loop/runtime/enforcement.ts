@@ -22,6 +22,8 @@ export interface RuntimeFacts {
   acceptancePassed: boolean;
   finalApprovalSatisfied: boolean;
   finalApprovalRejected: boolean;
+  /** 已消耗的 FIX 次数；必须随 Run State 持久化。 */
+  fixAttempts: number;
   fixAttemptsWithinLimit: boolean;
   resumeRequested: boolean;
   resumeStateValid: boolean;

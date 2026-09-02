@@ -13,20 +13,20 @@ function state(status: string, facts: Partial<LoopRuntimeState['facts']> = {}): 
       executionApprovalSatisfied: true, planArtifactExists: true, implementationCompleted: true,
       verificationPassed: true, verificationFailed: false, reviewPassed: true, reviewFailed: false,
       acceptancePassed: true, finalApprovalSatisfied: true, finalApprovalRejected: false,
-      fixAttemptsWithinLimit: true, resumeRequested: false, resumeStateValid: true, pauseExpired: false,
+      fixAttempts: 0, fixAttemptsWithinLimit: true, resumeRequested: false, resumeStateValid: true, pauseExpired: false,
       ...facts,
     },
   };
 }
 
-function harness(initial: LoopRuntimeState, results: Record<string, Partial<LoopRuntimeState['facts']>> = {}) {
+function harness(initial: LoopRuntimeState, results: Record<string, Partial<LoopRuntimeState['facts']>> = {}, maxFixAttempts = 3) {
   let current = initial;
   const store: StateStore = { read: () => current, write: (next) => { current = next; } };
   const runs = { loadRun: vi.fn(() => current) } as unknown as RunRuntime;
   const kernel = { transition: vi.fn((to: string) => { current = { ...current, status: to }; }) } as unknown as LoopRuntimeKernel;
   const executor: StageExecutor = { execute: vi.fn(async (stage) => ({ facts: results[stage] ?? {} })) };
-  const runtime = new ExecutionRuntime(runs, kernel, () => store, executor);
-  return { runtime, executor, kernel, getState: () => current };
+  const runtime = new ExecutionRuntime(runs, kernel, () => store, executor, { maxFixAttempts });
+  return { runtime, executor, kernel, getState: () => current, setState: (next: LoopRuntimeState) => { current = next; } };
 }
 
 describe('ExecutionRuntime', () => {
@@ -54,6 +54,32 @@ describe('ExecutionRuntime', () => {
     const h = harness(state('INIT'));
     const result = await h.runtime.runUntilHalt('run-1');
     expect(result.status).toBe('WAITING_FOR_GOAL_CONFIRMATION');
+  });
+
+  it('persists FIX attempts across Runtime instances', async () => {
+    const h = harness(state('FIX'), {}, 2);
+    await h.runtime.step('run-1');
+    expect(h.getState().facts.fixAttempts).toBe(1);
+
+    h.setState({ ...h.getState(), status: 'FIX' });
+    const restarted = new ExecutionRuntime(h.runtime, h.kernel, () => ({ read: () => h.getState(), write: (next) => h.setState(next) }), h.executor, { maxFixAttempts: 2 });
+    await restarted.step('run-1');
+    expect(h.getState().facts.fixAttempts).toBe(2);
+
+    h.setState({ ...h.getState(), status: 'FIX' });
+    const exhausted = new ExecutionRuntime(h.runtime, h.kernel, () => ({ read: () => h.getState(), write: (next) => h.setState(next) }), h.executor, { maxFixAttempts: 2 });
+    await exhausted.step('run-1');
+    expect(h.getState().facts.fixAttempts).toBe(3);
+    expect(h.getState().facts.fixAttemptsWithinLimit).toBe(false);
+    expect(h.getState().status).toBe('BLOCKED');
+    expect(h.executor.execute).toHaveBeenCalledTimes(2);
+  });
+
+  it('resetFixAttempts persists the reset', () => {
+    const h = harness(state('FIX', { fixAttempts: 2, fixAttemptsWithinLimit: false }));
+    h.runtime.resetFixAttempts('run-1');
+    expect(h.getState().facts.fixAttempts).toBe(0);
+    expect(h.getState().facts.fixAttemptsWithinLimit).toBe(true);
   });
 
   it('rejects an invalid retry limit at construction time', () => {

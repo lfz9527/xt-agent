@@ -29,6 +29,7 @@ const defaultFacts = (): RuntimeFacts => ({
   acceptancePassed: false,
   finalApprovalSatisfied: false,
   finalApprovalRejected: false,
+  fixAttempts: 0,
   fixAttemptsWithinLimit: true,
   resumeRequested: false,
   resumeStateValid: false,

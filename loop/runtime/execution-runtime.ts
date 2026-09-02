@@ -10,7 +10,6 @@ export interface ExecutionRuntimeOptions { maxFixAttempts?: number; checkpointSt
 
 /** P2-3 Execution Runtime：阶段完成后持久化 checkpoint；重启后优先恢复 checkpoint，避免重复调用 Agent/Tool。 */
 export class ExecutionRuntime {
-  private readonly fixAttempts = new Map<string, number>();
   private readonly maxFixAttempts: number;
   private readonly checkpointStore?: CheckpointStore;
 
@@ -34,14 +33,13 @@ export class ExecutionRuntime {
     if (recovered) return recovered;
 
     if (stage === 'FIX') {
-      const attempts = (this.fixAttempts.get(runId) ?? 0) + 1;
+      const attempts = state.facts.fixAttempts + 1;
       if (attempts > this.maxFixAttempts) {
-        this.updateFacts(runId, { fixAttemptsWithinLimit: false });
+        this.updateFacts(runId, { fixAttempts: attempts, fixAttemptsWithinLimit: false });
         this.kernel.transition('BLOCKED');
         return this.runs.loadRun(runId);
       }
-      this.fixAttempts.set(runId, attempts);
-      this.updateFacts(runId, { fixAttemptsWithinLimit: true });
+      this.updateFacts(runId, { fixAttempts: attempts, fixAttemptsWithinLimit: true });
       state = this.runs.loadRun(runId);
     }
 
@@ -77,7 +75,11 @@ export class ExecutionRuntime {
     }
   }
 
-  resetFixAttempts(runId: string): void { this.fixAttempts.delete(runId); }
+  /** 清零并持久化当前 Run 的 FIX 次数；新的 Runtime 实例也会读取到该值。 */
+  resetFixAttempts(runId: string): void {
+    const state = this.runs.loadRun(runId);
+    this.stateStoreFactory(runId).write({ ...state, facts: { ...state.facts, fixAttempts: 0, fixAttemptsWithinLimit: true } });
+  }
 
   private recoverCheckpoint(state: LoopRuntimeState, stage: ExecutionStage): LoopRuntimeState | undefined {
     if (!this.checkpointStore) return undefined;
