@@ -29,6 +29,12 @@ request:
   # 用户目标对应的验收标准。
   acceptanceCriteria: []
 
+policy:
+  # 本次运行解析策略的 Revision；不保存项目策略本身。
+  policyRevision: <revision>
+  # 当前执行使用的策略快照引用。
+  snapshot: .loop/runtime/policy-snapshot.yaml
+
 plan:
   # 当前计划产物在项目 `.loop/plans/` 中的规范引用。
   artifact: .loop/plans/<run-id>.md
@@ -64,38 +70,79 @@ approval:
 
 updatedAt: <timestamp>
 
-# 状态机只允许以下固定转移。
+# 状态转移除了 allowedNext 外，还必须满足 guard。
+# Runtime 不得仅凭合法状态名称跳过 Gate、Verification 或 Review。
 stateRules:
+  requireTransitionGuards: true
+
   INIT:
-    # 初始化后进入目标评审或阻断。
     allowedNext: [GOAL_REVIEW, BLOCKED]
+
   GOAL_REVIEW:
-    # 目标评审完成后进入执行前 Gate 或阻断。
     allowedNext: [WAITING_FOR_GOAL_CONFIRMATION, BLOCKED]
+
   WAITING_FOR_GOAL_CONFIRMATION:
-    # Gate 通过后进入计划阶段。
     allowedNext: [PLAN, BLOCKED]
+    guards:
+      PLAN:
+        - approval.beforeExecution == approved
+        - policy.policyRevision == currentPolicyRevision
+
   PLAN:
-    # 计划完成后进入实现阶段。
     allowedNext: [IMPLEMENT, BLOCKED]
+    guards:
+      IMPLEMENT:
+        - plan.artifact exists
+
   IMPLEMENT:
-    # 实现完成后进入验证阶段。
     allowedNext: [VERIFY, BLOCKED]
+    guards:
+      VERIFY:
+        - implementation.completed == true
+
   VERIFY:
-    # 验证通过进入 Review，失败进入 FIX。
     allowedNext: [REVIEW, FIX, BLOCKED]
+    guards:
+      REVIEW:
+        - verification.status == passed
+      FIX:
+        - verification.status == failed
+
   REVIEW:
-    # Review 通过进入最终 Gate，失败进入 FIX。
     allowedNext: [READY_FOR_CONFIRMATION, FIX, BLOCKED]
+    guards:
+      READY_FOR_CONFIRMATION:
+        - review.status == passed
+      FIX:
+        - review.status == failed
+
   READY_FOR_CONFIRMATION:
-    # 最终 Gate 通过进入 DONE，拒绝进入 FIX。
     allowedNext: [DONE, FIX, BLOCKED]
+    guards:
+      DONE:
+        - acceptanceCriteria.allPassed == true
+        - verification.status == passed
+        - review.status == passed
+        - approval.beforeFinalize in [approved, automatic]
+        - policy.policyRevision == currentPolicyRevision
+      FIX:
+        - approval.beforeFinalize == rejected
+
   FIX:
-    # 修复完成后重新进入实现阶段。
     allowedNext: [IMPLEMENT, BLOCKED]
+    guards:
+      IMPLEMENT:
+        - fixAttempts <= maxFixAttempts
+
   DONE:
-    # DONE 是终止状态。
     allowedNext: []
+
   BLOCKED:
-    # BLOCKED 是终止状态。
     allowedNext: []
+
+# PAUSED 是可恢复等待态，但属于 Runtime 扩展状态；进入条件由运行时策略定义。
+# P0 阶段不允许将 BLOCKED 当作可恢复状态。
+paused:
+  terminal: false
+  resumeInPlace: true
+  reasons: [approval_required, external_dependency, user_requested_pause]
