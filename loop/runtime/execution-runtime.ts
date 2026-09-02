@@ -52,7 +52,7 @@ export class ExecutionRuntime {
     const inputFingerprint = checkpointInputFingerprint(runId, stage, state.policyRevision, state.facts as unknown as Record<string, unknown>);
     const result = await this.executor.execute(stage, state);
     if (result.facts) { this.updateFacts(runId, result.facts); state = this.runs.loadRun(runId); }
-    const next = this.nextStatus(state, stage);
+    const next = this.stageRegistry.resolveNextStatus(state, stage);
 
     if (this.checkpointStore) {
       this.checkpointStore.write({
@@ -109,15 +109,4 @@ export class ExecutionRuntime {
   }
 
   private updateFacts(runId: string, facts: Partial<LoopRuntimeState['facts']>): void { const store = this.stateStoreFactory(runId); const state = store.read(); store.write({ ...state, facts: { ...state.facts, ...facts } }); }
-  private nextStatus(state: LoopRuntimeState, stage: ExecutionStage): string | undefined {
-    switch (stage) {
-      case 'GOAL_REVIEW': return state.status === 'INIT' ? 'GOAL_REVIEW' : 'WAITING_FOR_GOAL_CONFIRMATION';
-      case 'PLAN': return 'IMPLEMENT';
-      case 'IMPLEMENT': return 'VERIFY';
-      case 'VERIFY': return state.facts.verificationPassed ? 'REVIEW' : state.facts.verificationFailed ? 'FIX' : undefined;
-      case 'REVIEW': return state.facts.reviewPassed ? 'READY_FOR_CONFIRMATION' : state.facts.reviewFailed ? 'FIX' : undefined;
-      case 'FIX': return 'IMPLEMENT';
-      default: return undefined;
-    }
-  }
 }
