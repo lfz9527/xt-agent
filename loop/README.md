@@ -1,24 +1,10 @@
 # Loop v1
 
-Loop 是通用的、有状态的 Agent 任务控制层。Agent 负责完成工作，Loop 负责生命周期、状态机、项目 Policy、Permission、Trust、Approval、安全边界和 Evidence。
+Loop 是通用的、有状态的 Agent 任务控制层。Agent 负责完成工作，Loop 负责生命周期、状态机、项目 Policy、Permission、Trust、Approval、安全边界、Resource Governance 和 Evidence。
 
 ## 核心架构
 
-每个项目都有一个根目录 `.loop/`，它是该项目的 Loop 工作区，统一承载项目配置和 Loop 运行产物。
-
-```text
-<project-root>
-├── .loop/
-│   ├── config.yaml
-│   ├── runtime/
-│   ├── plans/
-│   ├── specs/
-│   ├── evidence/
-│   └── reviews/
-└── ...
-```
-
-`.loop/` 是项目级 Loop Workspace，不应再创建 `.loop-state.yaml`、`.loop-evidence/` 等平行对象。
+每个项目只有一个根目录 `.loop/`，它统一承载项目配置和所有 Run 的运行产物。一个 Project 可以有多个并行 Run。
 
 ```text
 Project
@@ -29,30 +15,119 @@ Project
        │    ├── Permission
        │    └── Project Policy
        │
-       └── Runtime Artifacts
-            ├── runtime/
-            ├── plans/
-            ├── specs/
-            ├── evidence/
-            └── reviews/
-                    │
-                    ↓
-              Loop Runtime
+       └── Runtime
+            ├── runs/<run-id>/       ← Run 私有状态
+            ├── history.jsonl        ← 跨 Run 审计事实
+            └── locks/               ← 资源级互斥
 ```
 
+`.loop/` 是项目级 Loop Workspace，不应再创建 `.loop-state.yaml`、`.loop-evidence/` 等平行对象。
+
 ## `.loop/` 目录结构
+
+```text
+.loop/
+├── config.yaml
+├── runtime/
+│   ├── runs/
+│   │   └── <run-id>/
+│   │       └── state.yaml
+│   ├── history.jsonl
+│   └── locks/
+│       └── <resource>.lock
+├── plans/<run-id>.md
+├── specs/<run-id>/<spec-id>.pecs.md
+├── evidence/<run-id>/<evidence-id>.yaml
+└── reviews/<run-id>.md
+```
 
 | 路径 | 职责 |
 |---|---|
 | `.loop/config.yaml` | 项目 Trust、Permission、项目级 Policy 的唯一来源 |
-| `.loop/runtime/state.yaml` | 当前 Loop Runtime 状态 |
-| `.loop/runtime/history.jsonl` | Runtime 历史事件 |
-| `.loop/plans/<run-id>.md` | 当前运行生成的 Plan |
-| `.loop/specs/<run-id>/<spec-id>.pecs.md` | 当前运行生成的 Spec / PECS |
+| `.loop/runtime/runs/<run-id>/state.yaml` | 当前 Run 独立 Runtime State |
+| `.loop/runtime/history.jsonl` | 跨 Run 的 append-only Runtime 历史事件 |
+| `.loop/runtime/locks/<resource>.lock` | 共享资源互斥锁 |
+| `.loop/plans/<run-id>.md` | 当前 Run 生成的 Plan |
+| `.loop/specs/<run-id>/<spec-id>.pecs.md` | 当前 Run 生成的 Spec / PECS |
 | `.loop/evidence/<run-id>/<evidence-id>.yaml` | Verification / Review Evidence |
-| `.loop/reviews/<run-id>.md` | 当前运行的 Review 结果 |
+| `.loop/reviews/<run-id>.md` | 当前 Run 的 Review 结果 |
 
 具体目录和命名规则以 `loop/schemas/artifact.yaml` 为准。
+
+## Run 与 Resource
+
+Loop 不使用 Project 级 `run.lock`。Run 和资源锁是两个不同概念：
+
+```text
+Project
+├── Run A ─────────────┐
+├── Run B ─────────────┤
+└── Run C ─────────────┘
+                       ↓
+                Resource Governance
+                       ↓
+          ┌────────────┼────────────┐
+          ↓            ↓            ↓
+       READONLY      MUTABLE      PROTECTED
+```
+
+Run ID 是独立执行上下文的稳定身份，负责关联 State、Plan、Spec、Evidence、Review、Snapshot、Approval 和 Audit。
+
+## Resource Governance
+
+资源修改必须依次经过：
+
+```text
+Resource Policy
+      ↓
+这个资源允许修改吗？
+      ↓
+Capability
+      ↓
+当前 Run 是否拥有修改能力？
+      ↓
+Approval
+      ↓
+是否满足授权 Gate？
+      ↓
+Resource Lock
+      ↓
+当前是否存在竞争 Run？
+      ↓
+Mutation
+```
+
+### Resource Policy
+
+资源有三种基本类型：
+
+| 类型 | 含义 |
+|---|---|
+| `readonly` | 只能读取，任何 Mutation 都拒绝 |
+| `mutable` | 可以修改，但必须匹配 `allowedCapabilities` |
+| `protected` | 默认禁止修改，只有明确特权 Capability 可以修改 |
+
+默认策略：
+
+- `working-tree`：`mutable`，允许代码、测试和普通产物修改。
+- `.loop/config.yaml`：`protected`，仅 `loop.policy.modify`。
+- `.loop/policies`：`protected`，仅 `loop.policy.modify`。
+- `.loop/schemas`：`protected`，仅 `loop.schema.modify`。
+- `.git`：`readonly`，禁止直接 Mutation。
+
+### Resource Lock
+
+Lock 只负责并发互斥，不负责权限判断。
+
+```text
+Run A → src/a.ts lock → MODIFY
+Run B → src/b.ts lock → MODIFY
+Run C → src/a.ts lock → WAIT / BLOCKED
+```
+
+因此多个 Run 可以并行分析、Plan、Review，并可在资源不冲突时并行修改。
+
+Lock owner 必须是当前 Run。锁文件存在但无法安全确认状态时，Runtime 必须阻断，不得猜测或强制抢占。
 
 ## 引擎定义与项目运行数据
 
@@ -68,58 +143,37 @@ Project
 
 引擎定义属于仓库本身；项目 `.loop/` 属于被 Loop 管理的项目。
 
-## `.loop/config.yaml`
+## Trust / Permission / Approval
 
-项目配置最小示例：
+Trust 是**项目属性**，不是 Runtime 属性，也不是 Agent 自己可以提升的权限。
 
-```yaml
-# 项目级 Loop 配置。
-version: 1
+Permission 决定 Capability 能不能执行；Trust 决定在允许的情况下默认是否需要人工审批；Approval 是实际 Gate。
 
-# 当前项目对 Agent 的信任等级。
-trust: low
+显式 `deny` 永远优先。Trust、Approval 或 Agent 意图都不能覆盖安全硬边界。
 
-permissions:
-  approval:
-    # 跟随项目 Trust 的执行前审批策略。
-    beforeExecution: inherit
-    # 跟随项目 Trust 的完成前审批策略。
-    beforeFinalize: inherit
+## Runtime Enforcement
+
+所有 Capability、Resource Mutation 和 State Transition 都必须通过 `LoopRuntimeKernel`。
+
+```text
+Capability
+   ↓
+Policy Revision / Snapshot
+   ↓
+Capability Decision
+   ↓
+Approval
+   ↓
+Resource Policy
+   ↓
+Resource Lock
+   ↓
+Executor
 ```
 
-Trust 是**项目属性**，不是 Runtime 属性。
-
-项目需要进一步收紧权限或增加项目级 Policy 时，继续修改 `.loop/config.yaml`，不创建第二套项目配置。
-
-## Trust
-
-引擎定义 Trust 等级的通用语义：
-
-| Trust | Before execution | Before finalize |
-|---|---|---|
-| `low` | required | required |
-| `medium` | automatic | required |
-| `high` | automatic | automatic |
-| `full` | automatic | automatic |
-
-Trust 只决定 Trust-controlled Approval Gate 的默认人工参与程度。
-
-Trust **不能**：
-
-- 把 `deny` Capability 变成 `allow`
-- 绕过危险操作的独立安全策略
-- 绕过 Secret / Production 等硬性保护
-- 修改 Loop 的安全上限
-
-## Permission
-
-Permission 决定 Agent **能不能做某件事**；Trust 决定在允许的情况下**是否默认需要人工审批**。
-
-显式 `deny` 永远优先。
+Policy Revision mismatch、非法 Transition、资源权限拒绝、锁竞争或安全拒绝必须阻断，不得降级成成功。
 
 ## Policy Resolution
-
-Loop 在启动、恢复和进入 Trust-controlled Gate 前解析当前项目配置：
 
 ```text
 .loop/config.yaml
@@ -132,33 +186,12 @@ Trust Resolution
  ↓
 Effective Policy
  ↓
-Current Gate
+Policy Snapshot + Revision
+ ↓
+Runtime Kernel
 ```
 
-如果配置冲突、缺失或无法安全解析，Loop 必须进入 `BLOCKED`，不能猜测。
-
-## Runtime 与产物
-
-一次 Loop 运行使用唯一 `run-id`，所有运行产物都放入 `.loop/` 工作区，并通过 `run-id` 建立关联。
-
-```text
-.loop/
-├── runtime/
-│   ├── state.yaml
-│   └── history.jsonl
-├── plans/
-│   └── <run-id>.md
-├── specs/
-│   └── <run-id>/
-│       └── <spec-id>.pecs.md
-├── evidence/
-│   └── <run-id>/
-│       └── <evidence-id>.yaml
-└── reviews/
-    └── <run-id>.md
-```
-
-Runtime 可以记录 Plan、Spec、Evidence 和 Review 的引用，但不得保存项目 Trust 或 Permission 的第二份配置。
+配置冲突、缺失或无法安全解析时，Loop 必须进入 `BLOCKED`，不能猜测。
 
 ## State Machine
 
@@ -194,38 +227,20 @@ VERIFY / REVIEW / READY_FOR_CONFIRMATION
               IMPLEMENT
 ```
 
-只有 `loop/schemas/state.yaml` 定义的状态转移合法。
-
-## Approval Gate
-
-### Before Execution
-
-Goal Review 完成后进入执行前 Gate：
-
-- `required`：等待用户确认。
-- `automatic`：自动通过。
-
-### Before Finalize
-
-Review 完成后进入最终 Gate：
-
-- `required`：等待用户接受结果。
-- `automatic`：满足其他完成条件后自动通过。
-
-Gate 属于 Loop 生命周期规则；是否需要人工参与由当前项目 Policy 和 Trust Resolution 决定。
+只有 `loop/schemas/state.yaml` 定义的状态转移合法。`PAUSED` 是可恢复等待态；`BLOCKED` 是安全终止态。
 
 ## Resume
 
 恢复时：
 
-1. 读取 `.loop/runtime/state.yaml`。
-2. 校验 State Schema。
+1. 根据 Run ID 定位 `.loop/runtime/runs/<run-id>/state.yaml`。
+2. 校验 State Schema、Run ID、Snapshot 和 Policy Revision。
 3. 确认项目根目录和 Git 上下文。
-4. 读取 `.loop/config.yaml`。
-5. 重新解析当前 Trust、Permission 和 Effective Policy。
-6. 根据 Runtime 状态继续执行。
-7. 不使用聊天历史猜测 Runtime 状态。
-8. 无法安全对应时进入 `BLOCKED`。
+4. 读取 `.loop/config.yaml` 并重新解析 Policy。
+5. Revision mismatch 则 `BLOCKED`。
+6. 校验该 Run 的 Plan / Spec / Evidence / Review。
+7. 根据 State Machine 和 Transition Guard 恢复。
+8. 不使用聊天历史猜测 Runtime 状态。
 
 ## Evidence
 
@@ -246,13 +261,14 @@ Agent 自己声称“完成”不能替代 Evidence。
 ## 设计原则
 
 1. **每个项目只有一个 `.loop/` 工作区。**
-2. **Trust 唯一归属项目。**
-3. **项目配置与 Runtime 产物都统一落在 `.loop/`。**
-4. **Runtime 不拥有项目 Policy。**
-5. **Permission 决定能不能做。**
+2. **一个 Project 可以存在多个 Run。**
+3. **Run ID 是执行身份，不是 Project 锁。**
+4. **资源是否可修改由 Resource Policy 决定。**
+5. **Capability 决定当前 Run 是否具备修改能力。**
 6. **Trust 决定默认审批程度。**
 7. **Approval 是 Gate，不是执行模式。**
-8. **Security Policy 独立于 Trust。**
-9. **State Machine 只负责生命周期。**
-10. **Evidence 只负责证明结果。**
-11. **所有运行产物通过 run-id 关联。**
+8. **Resource Lock 只负责并发互斥。**
+9. **Security Policy 独立于 Trust。**
+10. **State Machine 只负责生命周期。**
+11. **Evidence 只负责证明结果。**
+12. **所有运行产物通过 run-id 关联。**
