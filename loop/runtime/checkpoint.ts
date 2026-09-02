@@ -65,6 +65,15 @@ export class FileCheckpointStore implements CheckpointStore {
   }
 }
 
+function stableSerialize(value: unknown): string {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(stableSerialize).join(',')}]`;
+  const record = value as Record<string, unknown>;
+  return `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${stableSerialize(record[key])}`).join(',')}}`;
+}
+
 export function checkpointInputFingerprint(runId: string, stage: ExecutionStage, stateRevision: number, facts: Record<string, unknown>): string {
-  return createHash('sha256').update(JSON.stringify({ runId, stage, stateRevision, facts }, Object.keys(facts).sort())).digest('hex');
+  return createHash('sha256')
+    .update(stableSerialize({ runId, stage, stateRevision, facts }))
+    .digest('hex');
 }
