@@ -1,17 +1,28 @@
 import { randomUUID } from 'node:crypto';
 import type { LoopRuntimeState, LoopRuntimeKernel, StateStore } from './kernel';
 import type { RunRuntime } from './run-runtime';
-import { checkpointInputFingerprint, type CheckpointStore } from './checkpoint';
+import { checkpointInputFingerprint, FileCheckpointStore, type CheckpointStore } from './checkpoint';
 import type { HumanApprovalDecision, HumanApprovalGate, HumanApprovalGateName, HumanApprovalProvider } from './human-approval';
 import { StageRegistry } from './stage-registry';
 import type { RunArtifactStore } from './artifact-store';
+import { RunArtifactStore as FileRunArtifactStore } from './artifact-store';
 import { EvidenceCompletionGate, type CompletionEvidence } from './completion-gate';
 import type { RunAuditTimeline } from './audit-timeline';
 
 export type ExecutionStage = 'GOAL_REVIEW' | 'PLAN' | 'IMPLEMENT' | 'VERIFY' | 'REVIEW' | 'FIX' | 'READY_FOR_CONFIRMATION';
 export interface StageResult { facts?: Partial<LoopRuntimeState['facts']>; checkpoint?: string; evidence?: CompletionEvidence[]; }
 export interface StageExecutor { execute(stage: ExecutionStage, state: LoopRuntimeState): Promise<StageResult>; }
-export interface ExecutionRuntimeOptions { maxFixAttempts?: number; checkpointStore?: CheckpointStore; humanApprovalGate?: HumanApprovalGate; stageRegistry?: StageRegistry; artifactStore?: Pick<RunArtifactStore, 'writeEvidence'>; completionGate?: EvidenceCompletionGate; auditTimeline?: RunAuditTimeline; }
+export interface ExecutionRuntimeOptions {
+  /** Absolute `.loop` workspace resolved from the project root. */
+  workspace?: string;
+  maxFixAttempts?: number;
+  checkpointStore?: CheckpointStore;
+  humanApprovalGate?: HumanApprovalGate;
+  stageRegistry?: StageRegistry;
+  artifactStore?: Pick<RunArtifactStore, 'writeEvidence'>;
+  completionGate?: EvidenceCompletionGate;
+  auditTimeline?: RunAuditTimeline;
+}
 
 /** P2-3/P2-4/P2-5 Execution Runtime：阶段、checkpoint、evidence 和完成决策均进入统一 Run Audit Timeline。 */
 export class ExecutionRuntime {
@@ -31,10 +42,10 @@ export class ExecutionRuntime {
     options: ExecutionRuntimeOptions = {},
   ) {
     this.maxFixAttempts = options.maxFixAttempts ?? 3;
-    this.checkpointStore = options.checkpointStore;
+    this.checkpointStore = options.checkpointStore ?? (options.workspace ? new FileCheckpointStore(options.workspace) : undefined);
     this.humanApprovalGate = options.humanApprovalGate;
     this.stageRegistry = options.stageRegistry ?? new StageRegistry();
-    this.artifactStore = options.artifactStore;
+    this.artifactStore = options.artifactStore ?? (options.workspace ? new FileRunArtifactStore({ workspace: options.workspace }) : undefined);
     this.completionGate = options.completionGate ?? new EvidenceCompletionGate();
     this.auditTimeline = options.auditTimeline;
     if (!Number.isInteger(this.maxFixAttempts) || this.maxFixAttempts < 1) throw new Error('[LOOP_BLOCKED] maxFixAttempts must be a positive integer');
