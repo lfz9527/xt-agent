@@ -10,10 +10,14 @@ function event(type: string, payload: Record<string, unknown>, overrides: Record
 describe('RuntimeAuditReplay', () => {
   const workspace = join(process.cwd(), '.tmp-audit-replay');
 
-  it('reconstructs a run transition timeline without executing it', () => {
+  it('reconstructs the full observable timeline while deriving state transitions separately', () => {
     mkdirSync(join(workspace, 'runtime'), { recursive: true });
     writeFileSync(join(workspace, 'runtime', 'history.jsonl'), [
       event('STATE_TRANSITION', { from: 'INIT', to: 'PLAN' }),
+      event('STAGE', { stage: 'PLAN', outcome: 'started' }),
+      event('CHECKPOINT', { checkpointId: 'cp-1', stage: 'PLAN', nextStatus: 'IMPLEMENT' }),
+      event('EVIDENCE', { id: 'ev-1', runId: 'run-1', criterion: 'plan-valid', status: 'passed', confidence: 'high' }),
+      event('RESOURCE_MUTATION', { mutationId: 'mut-1', runId: 'run-1', resource: 'plan.md', result: 'committed' }),
       event('APPROVAL_RESOLVED', { capability: 'write', decision: 'approved' }),
       event('STATE_TRANSITION', { from: 'PLAN', to: 'IMPLEMENT' }),
       event('STATE_TRANSITION', { from: 'IMPLEMENT', to: 'DONE' }),
@@ -21,7 +25,11 @@ describe('RuntimeAuditReplay', () => {
     ].map((item) => JSON.stringify(item)).join('\n'));
 
     const result = new RuntimeAuditReplay(workspace).replay('run-1');
-    expect(result.events).toHaveLength(4);
+    expect(result.events).toHaveLength(8);
+    expect(result.events.map((item) => item.type)).toEqual([
+      'STATE_TRANSITION', 'STAGE', 'CHECKPOINT', 'EVIDENCE', 'RESOURCE_MUTATION',
+      'APPROVAL_RESOLVED', 'STATE_TRANSITION', 'STATE_TRANSITION',
+    ]);
     expect(result.transitions.map((item) => `${item.from}->${item.to}`)).toEqual([
       'INIT->PLAN', 'PLAN->IMPLEMENT', 'IMPLEMENT->DONE',
     ]);
