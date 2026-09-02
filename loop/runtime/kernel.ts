@@ -16,12 +16,7 @@ export interface ResourceMutationExecutor<T> { execute(): Promise<T>; }
 export interface LoopRuntimeKernelOptions {
   /** Absolute `.loop` workspace resolved from the project root. */
   workspace?: string;
-  audit?: RuntimeAuditLog;
-  resourceLock?: RuntimeResourceLock;
-  mutationJournal?: MutationJournal;
   mutationJournalFactory?: (runId: string) => MutationJournal;
-  gitCwd?: string;
-  auditTimeline?: RunAuditTimeline;
 }
 
 export class LoopRuntimeKernel {
@@ -36,14 +31,19 @@ export class LoopRuntimeKernel {
     private readonly stateStore: StateStore,
     private readonly policy: PolicyRevisionSource,
     private readonly approval?: ApprovalProvider,
+    audit?: RuntimeAuditLog,
+    resourceLock?: RuntimeResourceLock,
+    mutationJournal?: MutationJournal,
+    gitCwd: string = '.',
+    auditTimeline?: RunAuditTimeline,
     options: LoopRuntimeKernelOptions = {},
   ) {
-    this.audit = options.audit ?? (options.workspace ? new JsonlRuntimeAuditLog(options.workspace) : undefined);
-    this.resourceLock = options.resourceLock;
-    this.mutationJournal = options.mutationJournal;
+    this.audit = audit ?? (options.workspace ? new JsonlRuntimeAuditLog(options.workspace) : undefined);
+    this.resourceLock = resourceLock;
+    this.mutationJournal = mutationJournal;
     this.mutationJournalFactory = options.mutationJournalFactory ?? (options.workspace ? (runId) => new JsonlMutationJournal(options.workspace!, runId) : undefined);
-    this.gitCwd = options.gitCwd ?? '.';
-    this.auditTimeline = options.auditTimeline;
+    this.gitCwd = gitCwd;
+    this.auditTimeline = auditTimeline;
   }
 
   async executeCapability<T>(input: Omit<EnforcementContext, 'runId' | 'policyRevision' | 'currentPolicyRevision' | 'snapshot' | 'approvalDecision'> & { approvalDecision?: EnforcementContext['approvalDecision'] }, executor: CapabilityExecutor<T>): Promise<T> {
