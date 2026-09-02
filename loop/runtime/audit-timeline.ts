@@ -33,6 +33,12 @@ export class RunAuditTimeline {
     if (!Number.isInteger(policyRevision) || policyRevision < 1) throw new Error('[LOOP_BLOCKED] invalid audit timeline policy revision');
     const event: RuntimeAuditEvent = { eventId: createRuntimeEventId(type.toLowerCase()), runId, type, at: new Date().toISOString(), policyRevision, payload };
     this.audit.append(event);
-    for (const observer of this.observers.get(runId) ?? []) observer(event);
+    for (const observer of [...(this.observers.get(runId) ?? [])]) {
+      try {
+        observer(event);
+      } catch {
+        // Observer 是非关键消费方；单个观察者失败不能回滚或阻断 Runtime。
+      }
+    }
   }
 }
