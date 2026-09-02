@@ -1,7 +1,7 @@
 # Loop Runtime 状态 Schema。
 # 本文件描述一次运行的事实状态，不描述项目配置。
 # Trust、Permission 和项目 Policy 不属于 Runtime。
-version: 2
+version: 3
 
 run:
   # 当前 Loop 运行的唯一 ID。
@@ -22,6 +22,8 @@ context:
   baselineCommit: <git-commit-sha>
   # INIT 时捕获的 Git 分支。
   baselineBranch: <git-branch>
+  # 当前 Run 预期的工作区 Fingerprint；发现未登记漂移时必须阻断。
+  expectedWorktreeFingerprint: <git-status-fingerprint>
 
 request:
   # 本次运行的用户目标。
@@ -52,6 +54,34 @@ active:
   task: null
   # 当前 Loop 阶段。
   phase: INIT
+
+facts:
+  # Guard 只能引用这里定义的 Runtime Facts；禁止引用未建模的隐式字段。
+  implementation:
+    completed: false
+  acceptanceCriteria:
+    allPassed: false
+  verification:
+    status: pending
+  review:
+    status: pending
+  approval:
+    beforeExecution: required
+    beforeFinalize: required
+  resume:
+    requested: false
+    stateValid: false
+  pause:
+    reason: null
+    expired: false
+  fix:
+    attemptsWithinLimit: true
+  plan:
+    artifactExists: false
+  git:
+    baselineConsistent: true
+    expectedWorktreeState: clean
+    mutationJournal: .loop/runtime/runs/<run-id>/mutations.jsonl
 
 criteria:
   # 每个验收标准的 Runtime 执行状态。
