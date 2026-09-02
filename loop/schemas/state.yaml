@@ -1,10 +1,10 @@
 # Loop 运行状态文件的 Schema 定义。
-# 项目级状态文件默认保存于 <project-root>/.loop/state.yaml。
+# Runtime 状态与项目级 `.loop` 配置分离。
 
 # Schema 版本号，用于未来兼容不同版本的状态结构。
 version: 1
 
-# Project-local file: <project-root>/.loop/state.yaml
+# Runtime 状态文件由 Loop 实现管理，不属于项目级 `.loop` 配置。
 # 本文件记录当前 Loop 运行的可恢复状态。
 
 run:
@@ -34,18 +34,22 @@ request:
   acceptanceCriteria: []
 
 plan:
-  # 当前 Loop 计划产物的路径，通常位于 .loop/plans 目录下。
-  artifact: <relative-path-under-.loop/plans>
+  # 当前 Loop 计划产物的路径。
+  artifact: <relative-path>
 
 permission:
-  trust:
-    # 当前生效的用户信任等级；新运行默认来自 loop/config.yaml，恢复运行使用持久化值。
-    level: low
-  approval:
-    # 当前生效的执行前审批策略：required 表示需要人工确认，automatic 表示可自动通过。
-    beforeExecution: required
-    # 当前生效的完成前审批策略：required 表示需要人工确认，automatic 表示可自动通过。
-    beforeFinalize: required
+  # 本次 Loop 启动或恢复时解析出的项目权限快照。
+  # Trust 的真实来源是项目根目录唯一的 `.loop` 文件，不是 Runtime。
+  snapshot:
+    # 解析快照对应的项目 Trust Level；仅用于恢复和审计，不作为独立配置来源。
+    trustLevel: low
+    approval:
+      # 当前运行解析得到的执行前审批策略。
+      beforeExecution: required
+      # 当前运行解析得到的完成前审批策略。
+      beforeFinalize: required
+    # Capability Permission 的解析结果摘要。
+    capabilities: {}
 
 active:
   # 当前正在执行的任务；没有活动任务时为空。
@@ -79,8 +83,9 @@ updatedAt: <timestamp>
 # READY_FOR_CONFIRMATION -> FIX：用户拒绝最终结果时进入修复阶段。
 # FIX -> IMPLEMENT：修复完成后重新进入实现阶段。
 # 任意活动状态 -> BLOCKED：无法安全继续执行时进入阻断状态。
-# WAITING_FOR_GOAL_CONFIRMATION 和 READY_FOR_CONFIRMATION 都必须先解析当前 Trust/Permission Policy。
-# Trust Level 只影响由 Trust 管理的审批策略，不得绕过高风险操作和硬性安全边界。
+# WAITING_FOR_GOAL_CONFIRMATION 和 READY_FOR_CONFIRMATION 都必须使用项目 `.loop` 解析出的有效 Permission Policy。
+# Trust Level 属于项目；Runtime 只保存本次运行使用的权限快照。
+# Trust Level 不得绕过高风险操作和硬性安全边界。
 
 stateRules:
   INIT:
