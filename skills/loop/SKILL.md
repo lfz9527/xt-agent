@@ -17,15 +17,14 @@ Loop 是通用的、有状态的 Agent 任务控制协议。Agent 负责工作�
 │   ├── config.yaml
 │   ├── runtime/
 │   │   ├── state.yaml
-│   │   └── history.jsonl
+│   │   ├── history.jsonl
+│   │   └── policy-snapshot.yaml
 │   ├── plans/
 │   │   └── <run-id>.md
 │   ├── specs/
-│   │   └── <run-id>/
-│   │       └── <spec-id>.pecs.md
+│   │   └── <run-id>/<spec-id>.pecs.md
 │   ├── evidence/
-│   │   └── <run-id>/
-│   │       └── <evidence-id>.yaml
+│   │   └── <run-id>/<evidence-id>.yaml
 │   └── reviews/
 │       └── <run-id>.md
 └── ...
@@ -35,8 +34,8 @@ Loop 是通用的、有状态的 Agent 任务控制协议。Agent 负责工作�
 
 ## `.loop/` 职责
 
-- `.loop/config.yaml`：项目 Trust、Permission、项目级 Policy。
-- `.loop/runtime/`：Loop Runtime 状态、运行历史等运行事实。
+- `.loop/config.yaml`：项目 Trust、Permission、项目级 Policy，唯一真实配置来源。
+- `.loop/runtime/`：Loop Runtime 状态、历史和本次运行使用的 Policy Snapshot。
 - `.loop/plans/`：Loop 生成的 Plan 产物。
 - `.loop/specs/`：Loop 生成的 Spec / PECS 产物。
 - `.loop/evidence/`：Loop 生成的 Evidence 产物。
@@ -46,7 +45,9 @@ Loop 是通用的、有状态的 Agent 任务控制协议。Agent 负责工作�
 
 - `loop/config.yaml`：引擎能力、固定工作流、默认限制和 Trust 等级语义。
 - `loop/policies/default.yaml`：引擎默认策略。
-- `loop/schemas/state.yaml`：Runtime 状态和合法转移。
+- `loop/schemas/state.yaml`：Runtime 状态、合法转移和 Transition Guards。
+- `loop/schemas/policy.yaml`：Permission / Security / Trust / Approval / Gate 决策契约。
+- `loop/schemas/policy-snapshot.yaml`：一次运行使用的策略快照契约。
 - `loop/schemas/evidence.yaml`：Evidence 数据模型。
 - `loop/schemas/artifact.yaml`：`.loop/` 产物目录和命名契约。
 
@@ -63,80 +64,52 @@ Trust Resolution
        ↓
 Effective Policy
        ↓
-Loop Runtime
+Policy Snapshot + Revision
        ↓
-.loop/runtime + plans + specs + evidence + reviews
+Loop Runtime
 ```
 
-项目 `.loop/config.yaml` 是 Trust、Permission 和项目级 Policy 的唯一真实来源。
-
-Runtime 只能保存一次运行的事实，不得保存项目 Trust 或 Permission 的第二份配置。
+项目 `.loop/config.yaml` 是 Trust、Permission 和项目级 Policy 的唯一真实来源。Policy Snapshot 只记录某次运行实际使用的解析结果，不是第二份项目配置。
 
 ## Trigger
 
 Loop 只能由显式 `/loop` 调用启动或恢复。普通对话不得隐式启动、恢复或授权 Loop 修改仓库。
 
-## Trust
+## Trust / Permission / Approval
 
-Trust 是**项目属性**，不是 Runtime 属性，也不是 Agent 自己可以提升的权限。
+Trust 是项目属性，不是 Runtime 属性，也不是 Agent 自己可以提升的权限。
 
-项目当前 Trust 的唯一真实来源：
+Permission 决定 Capability 能否执行；Trust 只影响 Trust-controlled Approval Gate 的默认人工参与程度。
 
-```text
-<project-root>/.loop/config.yaml
-```
-
-最小配置：
-
-```yaml
-# 项目级 Loop 配置。
-version: 1
-
-# 当前项目对 Agent 的信任等级。
-trust: low
-
-permissions:
-  approval:
-    # 跟随项目 Trust 的执行前审批策略。
-    beforeExecution: inherit
-    # 跟随项目 Trust 的完成前审批策略。
-    beforeFinalize: inherit
-```
-
-引擎 Trust 语义：
-
-| Trust | Before execution | Before finalize |
-|---|---|---|
-| `low` | required | required |
-| `medium` | automatic | required |
-| `high` | automatic | automatic |
-| `full` | automatic | automatic |
-
-Trust 只能影响 Trust-controlled Approval Gate 的默认人工参与程度。
-
-Trust 不能：
-
-- 将 Capability `deny` 变成 `allow`。
-- 绕过高风险操作的独立安全策略。
-- 绕过 Secret / Production 等硬性安全边界。
-- 修改 Loop 安全限制。
-
-## Permission
-
-Permission 决定 Agent **能不能做**；Trust 决定允许之后**默认是否需要人工审批**。
+Capability Decision 的统一结果为：
 
 ```text
-Trust → Approval default
-Permission → Capability decision
-Security Policy → Hard safety boundary
-State Machine → Lifecycle decision
+Permission → deny / allow / confirm
 ```
 
-显式 `deny` 永远优先。
+- `deny`：立即阻断。
+- `allow`：继续进入 Security / Approval 判断。
+- `confirm`：Capability 本身允许，但必须进入 Approval，不得直接执行。
+
+Approval Policy 的结果为：
+
+```text
+required / automatic
+```
+
+实际 Gate Event 的结果为：
+
+```text
+approved / rejected
+```
+
+最终执行必须同时满足 Capability、Security、Approval 和 State Guard。
+
+显式 `deny` 永远优先；Trust 不能把 `deny` 变成 `allow`，也不能绕过高风险、Secret、Production 或 Loop safety limits。
 
 ## Policy Resolution
 
-启动、恢复以及进入 Trust-controlled Gate 前，都必须重新解析当前项目策略：
+启动、恢复、进入 Trust-controlled Gate，以及每次 Capability 实际执行前，都必须解析并校验策略：
 
 ```text
 .loop/config.yaml
@@ -149,8 +122,12 @@ Trust Resolution
  ↓
 Effective Policy
  ↓
-Current Gate
+Policy Snapshot
+ ↓
+Gate / Capability Execution
 ```
+
+每次运行保存 `policyRevision` 和 Policy Snapshot。实际执行前必须确认当前配置 Revision 与 Snapshot 一致；不一致必须 `BLOCKED`，禁止使用旧策略继续执行。
 
 `inherit` 表示对应审批策略跟随当前项目 Trust。
 
@@ -158,49 +135,36 @@ Current Gate
 
 ## Runtime Contract
 
-Runtime 只记录一次运行的事实：
+Runtime 只记录一次运行的事实：run ID、state / phase、counters、project context、request / acceptance criteria、plan/spec references、verification、review、approval history、evidence references、Git baseline 和 Policy Revision / Snapshot 引用。
 
-- run ID
-- state / phase
-- iteration / fix counters
-- project context
-- request / acceptance criteria
-- plan reference
-- verification
-- review
-- approval history
-- evidence references
-- Git baseline
+Runtime 不得保存项目 Trust 或 Permission 的第二份配置。
 
-运行产物统一落盘到当前项目的 `.loop/`：
+## Transition Enforcement
+
+状态转移不仅要求 `allowedNext` 合法，还必须满足 `loop/schemas/state.yaml` 定义的 Transition Guards。
 
 ```text
-.loop/
-├── runtime/     # state / history
-├── plans/       # Plan
-├── specs/       # Spec / PECS
-├── evidence/    # Evidence
-└── reviews/     # Review
+Current State
+     ↓
+Allowed Transition
+     ↓
+Transition Guards
+     ↓
+Policy / Evidence / Acceptance Checks
+     ↓
+Next State
 ```
 
-一次运行使用唯一 `run-id` 作为关联键。Plan 使用 `<run-id>.md`；Spec / PECS 使用 `.loop/specs/<run-id>/<spec-id>.pecs.md`；Evidence 使用 `.loop/evidence/<run-id>/<evidence-id>.yaml`；Review 使用 `.loop/reviews/<run-id>.md`。所有产物必须能够通过 `run-id` 与 Runtime State 对应。
+禁止仅通过修改 Runtime 的 `status` 跳过 Approval、Verification、Review 或 Final Gate。
 
-Runtime **不得保存项目 Trust 或 Permission 的第二份配置**。
+例如：
 
-Approval History 可以记录 Gate、时间、决策、来源和策略摘要，但这些都是历史事实，不是项目配置。
-
-## Trust Change
-
-用户修改项目 `.loop/config.yaml` 后：
-
-1. 尚未决策的 Trust-controlled Gate 必须在决策前重新读取配置。
-2. 后续 Gate 使用新的 Effective Policy。
-3. 已完成的 Approval Event 不被倒推修改。
-4. 如果 Runtime 与当前项目配置无法安全对应，进入 `BLOCKED`。
+- `WAITING_FOR_GOAL_CONFIRMATION → PLAN` 必须存在 `beforeExecution` 的 `approved` Gate Event，并确认 Policy Revision 未变化。
+- `VERIFY → REVIEW` 必须 `verification.status == passed`。
+- `REVIEW → READY_FOR_CONFIRMATION` 必须 `review.status == passed`。
+- `READY_FOR_CONFIRMATION → DONE` 必须验收标准全部通过、Verification / Review 通过，并满足 Final Gate。
 
 ## Lifecycle
-
-固定生命周期：
 
 ```text
 INIT
@@ -232,7 +196,7 @@ VERIFY / REVIEW / READY_FOR_CONFIRMATION
               IMPLEMENT
 ```
 
-只能执行 `loop/schemas/state.yaml` 定义的合法转移。
+`BLOCKED` 是不可继续的安全终止状态。可恢复的人为等待、外部依赖等待等情况使用 `PAUSED` 语义，不得把 `BLOCKED` 当作普通 Resume 状态。
 
 ## INIT
 
@@ -242,73 +206,43 @@ VERIFY / REVIEW / READY_FOR_CONFIRMATION
 4. 加载或创建 `.loop/runtime/` 下的 Runtime。
 5. 捕获 Git branch 和 baseline commit。
 6. 解析当前 Project Policy、Trust 和 Permission。
-7. 无法安全解析时进入 `BLOCKED`。
+7. 生成本次运行的 Policy Snapshot / Revision。
+8. 无法安全解析时进入 `BLOCKED`。
 
-## GOAL_REVIEW
+## GOAL_REVIEW / PLAN / IMPLEMENT
 
-形成：
+GOAL_REVIEW 形成 Goal、Acceptance Criteria、Verification Strategy 和 High-level Plan。
 
-- Goal
-- Acceptance Criteria
-- Verification Strategy
-- High-level Plan
+进入执行前 Gate 后，根据已确定 Goal、项目规则和 Skills 形成 Plan，并将产物落盘到 `.loop/plans/<run-id>.md`。
 
-完成后进入执行前 Gate。
+如果任务需要结构化 Spec / PECS，在 Plan 阶段生成 `.loop/specs/<run-id>/<spec-id>.pecs.md`。
 
-## WAITING_FOR_GOAL_CONFIRMATION
+IMPLEMENT 只执行当前任务，并遵守 Project Permission、Security Policy、Policy Snapshot 和项目规则。
 
-进入 Gate 前重新解析 `.loop/config.yaml`：
+## VERIFY / REVIEW
 
-- `required`：等待用户确认，禁止进入 IMPLEMENT。
-- `automatic`：自动通过。
-- `deny` / invalid：`BLOCKED`。
-
-## PLAN
-
-根据已确定 Goal、项目规则和 Skills 形成可执行计划，并将 Plan 产物落盘到 `.loop/plans/<run-id>.md`。
-
-## SPEC / PECS
-
-如果任务需要结构化 Spec 或 PECS，在 Plan 阶段生成并落盘到 `.loop/specs/<run-id>/<spec-id>.pecs.md`。Spec / PECS 必须关联当前 `run-id`，并作为后续 IMPLEMENT 与 VERIFY 的输入。
-
-## IMPLEMENT
-
-只执行当前任务，并遵守 Project Permission、Safety Policy 和项目规则。
-
-## VERIFY
-
-执行适用的项目原生验证。Verification 不得省略。
-
-将验证结果及其 Evidence 落盘到 `.loop/evidence/<run-id>/<evidence-id>.yaml`，并在 Runtime State 中保存引用。
+VERIFY 必须执行适用的项目原生验证，并将结果作为 Evidence 落盘到 `.loop/evidence/<run-id>/<evidence-id>.yaml`。
 
 - pass → `REVIEW`
 - fail → `FIX`
 - unsafe / denied → `BLOCKED`
 
-## REVIEW
-
-检查 Acceptance Criteria、Evidence、项目规则、实现质量、范围、回归风险和 Git Diff。
-
-Review 结果落盘到 `.loop/reviews/<run-id>.md`。
+REVIEW 检查 Acceptance Criteria、Evidence、项目规则、实现质量、范围、回归风险和 Git Diff，结果落盘到 `.loop/reviews/<run-id>.md`。
 
 - pass → `READY_FOR_CONFIRMATION`
 - fail → `FIX`
 - unsafe / denied → `BLOCKED`
 
-## READY_FOR_CONFIRMATION
+## READY_FOR_CONFIRMATION / DONE
 
-进入 Final Gate 前重新解析 `.loop/config.yaml`：
+进入 Final Gate 前重新解析 `.loop/config.yaml` 并生成新的有效决策。若 Policy Revision 发生变化，不得使用旧 Snapshot。
 
 - `required`：等待用户接受最终结果。
 - `automatic`：满足其他完成条件后自动通过。
 - 用户拒绝：`FIX`。
 - unsafe / denied：`BLOCKED`。
 
-## DONE / BLOCKED
-
 `DONE` 要求所有验收标准、Verification、Review 和适用 Final Approval Policy 满足。
-
-`BLOCKED` 表示当前运行无法安全继续，必须记录阻断原因。
 
 ## Resume
 
@@ -319,39 +253,21 @@ Review 结果落盘到 `.loop/reviews/<run-id>.md`。
 3. 确认项目根目录和 Git 上下文。
 4. 读取 `.loop/config.yaml`。
 5. 重新解析当前 Trust、Permission 和 Effective Policy。
-6. 从持久化 Runtime 状态继续。
-7. 通过 `run-id` 读取对应 Plan、Spec、Evidence、Review 产物。
-8. 不使用聊天历史猜测状态。
-9. 无法安全对应时进入 `BLOCKED`。
+6. 比较当前 Policy Revision 与 Runtime Snapshot。
+7. Revision 不一致时 `BLOCKED`，不得继续执行旧策略。
+8. 从持久化 Runtime 状态继续。
+9. 通过 `run-id` 读取对应 Plan、Spec、Evidence、Review 产物。
+10. 不使用聊天历史猜测状态。
+11. 无法安全对应时进入 `BLOCKED`。
 
 ## Evidence
 
-Evidence 用于证明 Acceptance Criteria、Verification 和 Review 结果。
-
-```text
-Acceptance Criteria
-        ↓
-Verification / Review
-        ↓
-.loop/evidence/<run-id>/
-        ↓
-Completion Decision
-```
-
-Agent 自己声称完成不能作为 Evidence。
+Evidence 用于证明 Acceptance Criteria、Verification 和 Review 结果。Agent 自己声称完成不能作为 Evidence。
 
 Evidence 数据结构遵循 `loop/schemas/evidence.yaml`，存储路径遵循 `loop/schemas/artifact.yaml`。
 
-## Git Contract
+## Git / Safety / Cancellation
 
-INIT 记录 baseline branch 和 commit；完成前检查相对 baseline 的 Diff。
-
-默认不自动 Commit 或 Push。Git Capability Permission 与 Trust 独立。
-
-## Safety
-
-Trust 只能影响 Trust-controlled Approval Gate，不能绕过 Capability deny、dangerous-operation policy、Secret / Production protection 或 Loop safety limits。
-
-## Cancellation
+INIT 记录 baseline branch 和 commit；完成前检查相对 baseline 的 Diff。默认不自动 Commit 或 Push。Git Capability Permission 与 Trust 独立。
 
 用户明确取消时立即停止当前运行，并由 Runtime 保留取消事实和未完成状态。不得继续执行。
