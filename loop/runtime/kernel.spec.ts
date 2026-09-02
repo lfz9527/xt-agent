@@ -89,7 +89,7 @@ describe('LoopRuntimeKernel', () => {
   it('does not mutate a resource without a git baseline and expected fingerprint', async () => {
     const { kernel } = fixture();
     const execute = vi.fn(async () => 'must-not-run');
-    await expect(kernel.mutateResource({ type: 'mutable', pattern: 'src/**/*.ts', capability: 'code.modify' }, 'code.modify', 'src/app.ts', { execute })).rejects.toThrow('[LOOP_BLOCKED]');
+    await expect(kernel.mutateResource({ resource: 'src/**/*.ts', kind: 'mutable', allowedCapabilities: ['code.modify'] }, 'code.modify', 'src/app.ts', { execute })).rejects.toThrow('[LOOP_BLOCKED]');
     expect(execute).not.toHaveBeenCalled();
   });
 
@@ -100,20 +100,21 @@ describe('LoopRuntimeKernel', () => {
     state.expectedWorktreeFingerprint = baseline.worktreeFingerprint;
     const kernel = new LoopRuntimeKernel(store, policy, undefined, undefined, new RuntimeResourceLock('/tmp/loop-kernel-test'));
     const execute = vi.fn(async () => 'must-not-run');
-    await expect(kernel.mutateResource({ type: 'mutable', pattern: 'src/**/*.ts', capability: 'code.modify' }, 'code.modify', 'src/app.ts', { execute })).rejects.toThrow('mutation journal is required');
+    await expect(kernel.mutateResource({ resource: 'src/**/*.ts', kind: 'mutable', allowedCapabilities: ['code.modify'] }, 'code.modify', 'src/app.ts', { execute })).rejects.toThrow('mutation journal is required');
     expect(execute).not.toHaveBeenCalled();
   });
 
   it('rejects a resource mutation before acquiring the lock when policy denies it', async () => {
-    const { kernel, state } = fixture();
+    const { state, policy } = fixture();
     const baseline = captureGitBaseline(process.cwd());
     state.gitBaseline = baseline;
     state.expectedWorktreeFingerprint = baseline.worktreeFingerprint;
     const journal = { append: vi.fn() };
     const lock = new RuntimeResourceLock('/tmp/loop-kernel-test');
-    const lockedKernel = new LoopRuntimeKernel(fixture().store, fixture().policy, undefined, undefined, lock, journal);
+    const { store } = fixture();
+    const lockedKernel = new LoopRuntimeKernel(store, policy, undefined, undefined, lock, journal);
     const execute = vi.fn(async () => 'must-not-run');
-    await expect(lockedKernel.mutateResource({ type: 'readonly', pattern: '.git/**' }, 'code.modify', '.git/config', { execute })).rejects.toThrow('[LOOP_DENY]');
+    await expect(lockedKernel.mutateResource({ resource: '.git/**', kind: 'readonly', allowedCapabilities: [] }, 'code.modify', '.git/config', { execute })).rejects.toThrow('[LOOP_DENY]');
     expect(execute).not.toHaveBeenCalled();
     expect(journal.append).not.toHaveBeenCalled();
   });
@@ -127,7 +128,7 @@ describe('LoopRuntimeKernel', () => {
     const lock = new RuntimeResourceLock('/tmp/loop-kernel-test');
     const kernel = new LoopRuntimeKernel(store, policy, undefined, undefined, lock, journal);
     const execute = vi.fn(async () => { throw new Error('mutation failed'); });
-    await expect(kernel.mutateResource({ type: 'mutable', pattern: 'src/**/*.ts', capability: 'code.modify' }, 'code.modify', 'src/app.ts', { execute })).rejects.toThrow('mutation failed');
+    await expect(kernel.mutateResource({ resource: 'src/**/*.ts', kind: 'mutable', allowedCapabilities: ['code.modify'] }, 'code.modify', 'src/app.ts', { execute })).rejects.toThrow('mutation failed');
     expect(store.write).not.toHaveBeenCalled();
     expect(journal.append).toHaveBeenCalledWith(expect.objectContaining({ result: 'failed', resource: 'src/app.ts', capability: 'code.modify' }));
   });
