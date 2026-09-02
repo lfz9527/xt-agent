@@ -7,43 +7,63 @@ description: Run the project Loop v1 workflow. This skill is ONLY activated by a
 
 Loop 是通用的、有状态的 Agent 任务控制协议。Agent 负责工作；Loop 负责生命周期、Policy Resolution、Permission、Trust、Approval、Safety 和 Evidence。
 
-## 项目配置唯一入口
+## 项目 Loop 工作区
 
-每个项目只需要一个根目录 `.loop` **文件**。
+每个项目只需要一个根目录 `.loop/` **目录**。`.loop/` 是该项目所有 Loop 配置与运行产物的统一工作区。
 
 ```text
 <project-root>
-├── .loop
+├── .loop/
+│   ├── config.yaml
+│   ├── runtime/
+│   ├── plans/
+│   ├── specs/
+│   ├── evidence/
+│   └── reviews/
 └── ...
 ```
 
-`.loop` 是文件，不是目录。Loop 不要求项目额外创建固定的状态文件或 Evidence 目录。
+不同项目各自使用项目根目录下的 `.loop/`，运行产物不得跨项目共享。
 
-项目配置模型：
+## `.loop/` 职责
 
-```text
-.loop
- ├── trust
- ├── permissions
- └── project policy
-       ↓
-Policy Resolver
-       ↓
-Effective Policy
-       ↓
-Loop Runtime
-```
+- `.loop/config.yaml`：项目 Trust、Permission、项目级 Policy。
+- `.loop/runtime/`：Loop Runtime 状态、运行历史等运行事实。
+- `.loop/plans/`：Loop 生成的 Plan 产物。
+- `.loop/specs/`：Loop 生成的 Spec / Pecs 产物。
+- `.loop/evidence/`：Loop 生成的 Evidence 产物。
+- `.loop/reviews/`：Loop 生成的 Review 产物。
 
-## 职责边界
+目录不存在时由 Runtime 按需创建；不要求项目预先创建空目录。
 
-- `.loop`：项目 Trust、Permission、项目级 Policy 的唯一来源。
+引擎侧定义仍位于：
+
 - `loop/config.yaml`：引擎能力、固定工作流、默认限制和 Trust 等级语义。
 - `loop/policies/default.yaml`：引擎默认策略。
 - `loop/schemas/state.yaml`：Runtime 状态和合法转移。
 - `loop/schemas/evidence.yaml`：Evidence 数据模型。
-- Runtime：一次运行的状态和历史事实。
 
-Runtime 的实际存储由宿主运行时负责，不把 Runtime 文件结构强加给项目。
+## 配置与运行时边界
+
+```text
+.loop/config.yaml
+       ↓
+Project Policy
+       ↓
+Engine Default
+       ↓
+Trust Resolution
+       ↓
+Effective Policy
+       ↓
+Loop Runtime
+       ↓
+.loop/runtime + plans + specs + evidence + reviews
+```
+
+项目 `.loop/config.yaml` 是 Trust、Permission 和项目级 Policy 的唯一真实来源。
+
+Runtime 只能保存一次运行的事实，不得保存项目 Trust 或 Permission 的第二份配置。
 
 ## Trigger
 
@@ -56,7 +76,7 @@ Trust 是**项目属性**，不是 Runtime 属性，也不是 Agent 自己可以
 项目当前 Trust 的唯一真实来源：
 
 ```text
-<project-root>/.loop
+<project-root>/.loop/config.yaml
 ```
 
 最小配置：
@@ -112,7 +132,7 @@ State Machine → Lifecycle decision
 启动、恢复以及进入 Trust-controlled Gate 前，都必须重新解析当前项目策略：
 
 ```text
-.loop
+.loop/config.yaml
  ↓
 Project Policy
  ↓
@@ -138,12 +158,25 @@ Runtime 只记录一次运行的事实：
 - iteration / fix counters
 - project context
 - request / acceptance criteria
-- plan
+- plan reference
 - verification
 - review
 - approval history
 - evidence references
 - Git baseline
+
+运行产物统一落盘到当前项目的 `.loop/`：
+
+```text
+.loop/
+├── runtime/     # state / history
+├── plans/       # Plan
+├── specs/       # Spec / Pecs
+├── evidence/    # Evidence
+└── reviews/     # Review
+```
+
+一次运行使用唯一 `run-id` 作为关联键。Plan、Spec、Evidence、Review 等产物必须能够通过 `run-id` 与 Runtime State 对应。
 
 Runtime **不得保存项目 Trust 或 Permission 的第二份配置**。
 
@@ -151,9 +184,9 @@ Approval History 可以记录 Gate、时间、决策、来源和策略摘要，�
 
 ## Trust Change
 
-用户修改项目 `.loop` 后：
+用户修改项目 `.loop/config.yaml` 后：
 
-1. 尚未决策的 Trust-controlled Gate 必须在决策前重新读取 `.loop`。
+1. 尚未决策的 Trust-controlled Gate 必须在决策前重新读取配置。
 2. 后续 Gate 使用新的 Effective Policy。
 3. 已完成的 Approval Event 不被倒推修改。
 4. 如果 Runtime 与当前项目配置无法安全对应，进入 `BLOCKED`。
@@ -198,8 +231,8 @@ VERIFY / REVIEW / READY_FOR_CONFIRMATION
 
 1. 定位项目根目录。
 2. 加载 `AGENTS.md` 和相关 Skills。
-3. 读取唯一 `.loop`。
-4. 加载或创建 Runtime。
+3. 读取 `.loop/config.yaml`。
+4. 加载或创建 `.loop/runtime/` 下的 Runtime。
 5. 捕获 Git branch 和 baseline commit。
 6. 解析当前 Project Policy、Trust 和 Permission。
 7. 无法安全解析时进入 `BLOCKED`。
@@ -217,7 +250,7 @@ VERIFY / REVIEW / READY_FOR_CONFIRMATION
 
 ## WAITING_FOR_GOAL_CONFIRMATION
 
-进入 Gate 前重新解析 `.loop`：
+进入 Gate 前重新解析 `.loop/config.yaml`：
 
 - `required`：等待用户确认，禁止进入 IMPLEMENT。
 - `automatic`：自动通过。
@@ -225,7 +258,11 @@ VERIFY / REVIEW / READY_FOR_CONFIRMATION
 
 ## PLAN
 
-根据已确定 Goal、项目规则和 Skills 形成可执行计划。
+根据已确定 Goal、项目规则和 Skills 形成可执行计划，并将 Plan 产物落盘到 `.loop/plans/`。
+
+## SPEC / PECS
+
+如果任务需要结构化 Spec 或 Pecs，在 Plan 阶段生成并落盘到 `.loop/specs/`。Spec / Pecs 必须关联当前 `run-id`，并作为后续 IMPLEMENT 与 VERIFY 的输入。
 
 ## IMPLEMENT
 
@@ -235,7 +272,7 @@ VERIFY / REVIEW / READY_FOR_CONFIRMATION
 
 执行适用的项目原生验证。Verification 不得省略。
 
-记录 Verification 结果和 Evidence 引用。
+将验证结果及其 Evidence 落盘到 `.loop/evidence/`，并在 Runtime State 中保存引用。
 
 - pass → `REVIEW`
 - fail → `FIX`
@@ -245,13 +282,15 @@ VERIFY / REVIEW / READY_FOR_CONFIRMATION
 
 检查 Acceptance Criteria、Evidence、项目规则、实现质量、范围、回归风险和 Git Diff。
 
+Review 结果落盘到 `.loop/reviews/`。
+
 - pass → `READY_FOR_CONFIRMATION`
 - fail → `FIX`
 - unsafe / denied → `BLOCKED`
 
 ## READY_FOR_CONFIRMATION
 
-进入 Final Gate 前重新解析 `.loop`：
+进入 Final Gate 前重新解析 `.loop/config.yaml`：
 
 - `required`：等待用户接受最终结果。
 - `automatic`：满足其他完成条件后自动通过。
@@ -268,14 +307,15 @@ VERIFY / REVIEW / READY_FOR_CONFIRMATION
 
 恢复时：
 
-1. 读取 Runtime 状态。
+1. 读取 `.loop/runtime/` 中的 Runtime 状态。
 2. 校验 State Schema。
 3. 确认项目根目录和 Git 上下文。
-4. 读取唯一 `.loop`。
+4. 读取 `.loop/config.yaml`。
 5. 重新解析当前 Trust、Permission 和 Effective Policy。
 6. 从持久化 Runtime 状态继续。
-7. 不使用聊天历史猜测状态。
-8. 无法安全对应时进入 `BLOCKED`。
+7. 通过 `run-id` 读取对应 Plan、Spec、Evidence、Review 产物。
+8. 不使用聊天历史猜测状态。
+9. 无法安全对应时进入 `BLOCKED`。
 
 ## Evidence
 
@@ -286,7 +326,7 @@ Acceptance Criteria
         ↓
 Verification / Review
         ↓
-Evidence
+.loop/evidence/
         ↓
 Completion Decision
 ```
