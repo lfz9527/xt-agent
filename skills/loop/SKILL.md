@@ -1,44 +1,57 @@
 ---
 name: loop
-description: Run the project Loop v1 workflow. This skill is ONLY activated by an explicit user `/loop` invocation. Never start Loop, modify files, or continue a Loop run from an ordinary message.
+description: Run the project Loop v1 workflow. This skill is ONLY activated by an explicit user `/loop` invocation. Never start, resume, or authorize Loop from an ordinary message.
 ---
 
 # Loop v1
 
-Loop 是通用的、有状态的 Agent 任务控制协议。Agent 负责工作，Loop 负责生命周期、状态机、Permission、Trust、Approval、Safety 和 Evidence。
+Loop 是通用的、有状态的 Agent 任务控制协议。Agent 负责工作；Loop 负责生命周期、Policy Resolution、Permission、Trust、Approval、Safety 和 Evidence。
 
-## 项目配置边界
+## 项目配置唯一入口
 
-每个项目只需要一个根目录 `.loop` **文件**。它是该项目 Trust、Permission 和项目级 Loop Policy 的唯一配置入口。
+每个项目只需要一个根目录 `.loop` **文件**。
 
 ```text
-Project
-  └── .loop
-       ├── trust
-       ├── permissions
-       └── project policy
-              ↓
-       Permission Resolver
-              ↓
-       Effective Policy
-              ↓
-         Loop Runtime
+<project-root>
+├── .loop
+└── ...
 ```
 
-`loop/config.yaml` 是引擎默认配置，不保存项目当前 Trust。
-`loop/policies/default.yaml` 是引擎默认策略。
-`loop/schemas/state.yaml` 描述一次 Runtime。
-`loop/schemas/evidence.yaml` 描述 Evidence。
+`.loop` 是文件，不是目录。Loop 不要求项目额外创建固定的状态文件或 Evidence 目录。
 
-`.loop-state.yaml` 和 `.loop-evidence/` 如果启用，只是 Runtime 生成的数据，绝不是项目 Trust 或 Permission 的第二来源。
+项目配置模型：
+
+```text
+.loop
+ ├── trust
+ ├── permissions
+ └── project policy
+       ↓
+Policy Resolver
+       ↓
+Effective Policy
+       ↓
+Loop Runtime
+```
+
+## 职责边界
+
+- `.loop`：项目 Trust、Permission、项目级 Policy 的唯一来源。
+- `loop/config.yaml`：引擎能力、固定工作流、默认限制和 Trust 等级语义。
+- `loop/policies/default.yaml`：引擎默认策略。
+- `loop/schemas/state.yaml`：Runtime 状态和合法转移。
+- `loop/schemas/evidence.yaml`：Evidence 数据模型。
+- Runtime：一次运行的状态和历史事实。
+
+Runtime 的实际存储由宿主运行时负责，不把 Runtime 文件结构强加给项目。
 
 ## Trigger
 
 Loop 只能由显式 `/loop` 调用启动或恢复。普通对话不得隐式启动、恢复或授权 Loop 修改仓库。
 
-## Trust Level
+## Trust
 
-Trust 是**项目属性**，不是 Loop Runtime 属性，也不是 Agent 自己可以提升的权限。
+Trust 是**项目属性**，不是 Runtime 属性，也不是 Agent 自己可以提升的权限。
 
 项目当前 Trust 的唯一真实来源：
 
@@ -46,23 +59,24 @@ Trust 是**项目属性**，不是 Loop Runtime 属性，也不是 Agent 自己�
 <project-root>/.loop
 ```
 
-示例：
+最小配置：
 
 ```yaml
 # 项目级 Loop 配置。
 version: 1
 
-# Trust 属于项目。
+# 当前项目对 Agent 的信任等级。
 trust: low
 
 permissions:
   approval:
-    # 跟随项目 Trust。
+    # 跟随项目 Trust 的执行前审批策略。
     beforeExecution: inherit
+    # 跟随项目 Trust 的完成前审批策略。
     beforeFinalize: inherit
 ```
 
-引擎定义 Trust 等级的通用语义：
+引擎 Trust 语义：
 
 | Trust | Before execution | Before finalize |
 |---|---|---|
@@ -71,145 +85,157 @@ permissions:
 | `high` | automatic | automatic |
 | `full` | automatic | automatic |
 
-不得在 Runtime 中创建 `permission.trust.level` 或其他第二份 Trust 配置。
+Trust 只能影响 Trust-controlled Approval Gate 的默认人工参与程度。
 
-## Trust 与 Permission
+Trust 不能：
 
-两者职责必须分离：
+- 将 Capability `deny` 变成 `allow`。
+- 绕过高风险操作的独立安全策略。
+- 绕过 Secret / Production 等硬性安全边界。
+- 修改 Loop 安全限制。
+
+## Permission
+
+Permission 决定 Agent **能不能做**；Trust 决定允许之后**默认是否需要人工审批**。
 
 ```text
-Trust
-  ↓ 默认 Approval 行为
-Permission
-  ↓ Capability 是否允许
-Approval
-  ↓ 当前 Gate 是否需要人工参与
-State Machine
-  ↓ 当前生命周期阶段
+Trust → Approval default
+Permission → Capability decision
+Security Policy → Hard safety boundary
+State Machine → Lifecycle decision
 ```
 
-项目 `.loop` 可以显式收紧 Permission：
-
-```yaml
-permissions:
-  filesystem:
-    read: allow
-    write: allow
-  shell:
-    execute: allow
-    dangerous: confirm
-  git:
-    read: allow
-    commit: confirm
-    push: confirm
-  network:
-    request: confirm
-```
-
-显式 `deny` 永远优先。Trust 不能把 denied capability 变成 allowed。
-
-Trust 也不能绕过 dangerous / high-risk 操作、Secret、Production 等硬性安全边界。
+显式 `deny` 永远优先。
 
 ## Policy Resolution
 
-任何 Trust-controlled Gate 都必须按当前项目配置重新解析：
+启动、恢复以及进入 Trust-controlled Gate 前，都必须重新解析当前项目策略：
 
 ```text
-项目 `.loop`
-   ↓
-Trust
-   ↓
-Project Permission
-   ↓
+.loop
+ ↓
+Project Policy
+ ↓
 Engine Default
-   ↓
+ ↓
+Trust Resolution
+ ↓
 Effective Policy
-   ↓
+ ↓
 Current Gate
 ```
 
-`inherit` 表示对应 Permission 跟随项目 Trust。
+`inherit` 表示对应审批策略跟随当前项目 Trust。
 
-如果配置无效、Permission 冲突或无法安全确定最终策略，进入 `BLOCKED`，不得猜测。
+如果配置冲突、缺失或无法安全解析，必须进入 `BLOCKED`，不得猜测。
 
-## Runtime
+## Runtime Contract
 
-Runtime 只记录一次 Loop 的执行事实：
+Runtime 只记录一次运行的事实：
 
-- run identity
+- run ID
 - state / phase
 - iteration / fix counters
 - project context
-- request
+- request / acceptance criteria
 - plan
 - verification
 - review
 - approval history
+- evidence references
+- Git baseline
 
-Runtime 不拥有 Trust。
+Runtime **不得保存项目 Trust 或 Permission 的第二份配置**。
 
-Approval History 可以记录 Gate、时间、结果、来源以及必要的策略版本/配置摘要，但它只是历史事实，不是 Trust 配置。
+Approval History 可以记录 Gate、时间、决策、来源和策略摘要，但这些都是历史事实，不是项目配置。
 
 ## Trust Change
 
-用户修改项目 `.loop` 中的 Trust 后，未来 Gate 使用新的项目策略。
+用户修改项目 `.loop` 后：
 
-已经完成的 Approval Event 不会被倒推撤销。
+1. 尚未决策的 Trust-controlled Gate 必须在决策前重新读取 `.loop`。
+2. 后续 Gate 使用新的 Effective Policy。
+3. 已完成的 Approval Event 不被倒推修改。
+4. 如果 Runtime 与当前项目配置无法安全对应，进入 `BLOCKED`。
 
-对于尚未做出决策的 Gate，在真正执行决策前必须重新读取 `.loop` 并解析当前策略，避免使用过期配置。
+## Lifecycle
+
+固定生命周期：
+
+```text
+INIT
+  ↓
+GOAL_REVIEW
+  ↓
+WAITING_FOR_GOAL_CONFIRMATION
+  ↓
+PLAN
+  ↓
+IMPLEMENT
+  ↓
+VERIFY
+  ↓
+REVIEW
+  ↓
+READY_FOR_CONFIRMATION
+  ↓
+DONE
+```
+
+失败修复：
+
+```text
+VERIFY / REVIEW / READY_FOR_CONFIRMATION
+                  ↓
+                 FIX
+                  ↓
+              IMPLEMENT
+```
+
+只能执行 `loop/schemas/state.yaml` 定义的合法转移。
 
 ## INIT
 
 1. 定位项目根目录。
 2. 加载 `AGENTS.md` 和相关 Skills。
-3. 读取项目根目录唯一 `.loop`。
-4. 加载 Runtime 状态；存在活动 Run 时恢复。
+3. 读取唯一 `.loop`。
+4. 加载或创建 Runtime。
 5. 捕获 Git branch 和 baseline commit。
-6. 校验项目 Trust / Permission。
-7. 创建或恢复 Runtime。
-
-Transition：`INIT → GOAL_REVIEW` 或 `BLOCKED`。
+6. 解析当前 Project Policy、Trust 和 Permission。
+7. 无法安全解析时进入 `BLOCKED`。
 
 ## GOAL_REVIEW
 
-定义：
+形成：
 
 - Goal
 - Acceptance Criteria
-- verification strategy
-- high-level plan
+- Verification Strategy
+- High-level Plan
 
-Transition：`GOAL_REVIEW → WAITING_FOR_GOAL_CONFIRMATION` 或 `BLOCKED`。
+完成后进入执行前 Gate。
 
 ## WAITING_FOR_GOAL_CONFIRMATION
 
-进入 Gate 前重新解析项目 `.loop` 的 `beforeExecution`：
+进入 Gate 前重新解析 `.loop`：
 
-- `required`：等待用户确认，禁止修改实现文件。
+- `required`：等待用户确认，禁止进入 IMPLEMENT。
 - `automatic`：自动通过。
-- denied / invalid：`BLOCKED`。
-
-Transition：`WAITING_FOR_GOAL_CONFIRMATION → PLAN` 或 `BLOCKED`。
+- `deny` / invalid：`BLOCKED`。
 
 ## PLAN
 
-根据已确认 Goal、项目规则和 Skills 形成可执行任务与验证方案。
-
-Transition：`PLAN → IMPLEMENT` 或 `BLOCKED`。
+根据已确定 Goal、项目规则和 Skills 形成可执行计划。
 
 ## IMPLEMENT
 
-只执行当前任务，遵守项目 Permission 和 Test First 等项目规则。
-
-Transition：`IMPLEMENT → VERIFY` 或 `BLOCKED`。
+只执行当前任务，并遵守 Project Permission、Safety Policy 和项目规则。
 
 ## VERIFY
 
-执行适用的项目原生验证。测试可以在不适用时省略，但 Verification 本身不能省略。
+执行适用的项目原生验证。Verification 不得省略。
 
-记录 Evidence，并保留失败结果供 FIX 使用。
-
-Transition：
+记录 Verification 结果和 Evidence 引用。
 
 - pass → `REVIEW`
 - fail → `FIX`
@@ -219,89 +245,64 @@ Transition：
 
 检查 Acceptance Criteria、Evidence、项目规则、实现质量、范围、回归风险和 Git Diff。
 
-Transition：
-
 - pass → `READY_FOR_CONFIRMATION`
 - fail → `FIX`
 - unsafe / denied → `BLOCKED`
 
 ## READY_FOR_CONFIRMATION
 
-进入 Gate 前重新解析项目 `.loop` 的 `beforeFinalize`：
+进入 Final Gate 前重新解析 `.loop`：
 
 - `required`：等待用户接受最终结果。
-- `automatic`：其他完成条件满足后自动通过。
-- 用户拒绝：进入 `FIX`。
-
-Transition：
-
-- accepted / automatic → `DONE`
-- rejected → `FIX`
-- unsafe / denied → `BLOCKED`
+- `automatic`：满足其他完成条件后自动通过。
+- 用户拒绝：`FIX`。
+- unsafe / denied：`BLOCKED`。
 
 ## DONE / BLOCKED
 
-`DONE` 要求所有 Acceptance Criteria、Verification、Review 和适用的 Final Approval Policy 均满足。Final Approval 可以因为项目 Trust 而自动通过。
+`DONE` 要求所有验收标准、Verification、Review 和适用 Final Approval Policy 满足。
 
-`BLOCKED` 表示当前运行无法安全继续，必须保留原因和运行状态。
+`BLOCKED` 表示当前运行无法安全继续，必须记录阻断原因。
 
 ## Resume
 
 恢复时：
 
-1. 读取并校验 Runtime 状态。
-2. 确认项目根目录和 Git 上下文。
-3. 读取项目唯一 `.loop`。
-4. 重新解析当前 Trust 和 Permission。
-5. 从持久化 phase 继续。
-6. 保留 run ID、计数器、Approval History 和 Evidence。
-7. 配置、状态或仓库上下文无法安全对应时进入 `BLOCKED`。
+1. 读取 Runtime 状态。
+2. 校验 State Schema。
+3. 确认项目根目录和 Git 上下文。
+4. 读取唯一 `.loop`。
+5. 重新解析当前 Trust、Permission 和 Effective Policy。
+6. 从持久化 Runtime 状态继续。
+7. 不使用聊天历史猜测状态。
+8. 无法安全对应时进入 `BLOCKED`。
 
-绝不能使用聊天历史替代 Runtime 状态。
+## Evidence
 
-## State Transition Enforcement
-
-每次转移前检查：
-
-```text
-current state
-+ event/result
-+ required artifacts/evidence
-+ current project Trust/Permission
-+ configured limits
-→ allowed next state
-```
-
-未在 `loop/schemas/state.yaml` 定义的转移一律非法。不得跳过 Approval Gate，不得直接进入 `DONE`。
-
-## Git Contract
-
-INIT 记录 baseline branch 和 commit。完成前检查相对 baseline 的 Diff。
-
-默认不自动 Commit 或 Push；必须同时满足项目 `.loop` Permission 和用户授权。
-
-Git Capability Permission 与 Trust Level 独立。
-
-## Evidence Contract
+Evidence 用于证明 Acceptance Criteria、Verification 和 Review 结果。
 
 ```text
-Acceptance Criterion
+Acceptance Criteria
         ↓
 Verification / Review
         ↓
 Evidence
         ↓
 Completion Decision
-        ↓
-Final Approval Policy
 ```
 
-Agent 自己声称完成不是 Evidence。
+Agent 自己声称完成不能作为 Evidence。
+
+## Git Contract
+
+INIT 记录 baseline branch 和 commit；完成前检查相对 baseline 的 Diff。
+
+默认不自动 Commit 或 Push。Git Capability Permission 与 Trust 独立。
 
 ## Safety
 
-Trust Level 只能减少 Trust-controlled Gate 的人工审批，不能绕过 Capability deny、dangerous-operation policy、Secret / Production protection 或 Loop safety limits。
+Trust 只能影响 Trust-controlled Approval Gate，不能绕过 Capability deny、dangerous-operation policy、Secret / Production protection 或 Loop safety limits。
 
 ## Cancellation
 
-用户明确取消时立即停止，并持久化 Runtime 状态、Approval History 和未完成 Criteria。不得继续执行。
+用户明确取消时立即停止当前运行，并由 Runtime 保留取消事实和未完成状态。不得继续执行。
