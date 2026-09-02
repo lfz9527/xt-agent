@@ -5,7 +5,7 @@ import type { RuntimeFacts } from './enforcement';
 
 const snapshot = { runId: 'run-1', policyRevision: 3, trust: 'high', permissions: {}, effectivePolicy: {}, resolvedAt: new Date(0).toISOString() };
 const facts: RuntimeFacts = {
-  executionApprovalSatisfied: false, planArtifactExists: false, implementationCompleted: true,
+  executionApprovalSatisfied: false, planArtifactExists: false, implementationCompleted: false,
   verificationPassed: false, verificationFailed: false, reviewPassed: false, reviewFailed: false,
   acceptancePassed: false, finalApprovalSatisfied: false, finalApprovalRejected: false,
   fixAttemptsWithinLimit: true, resumeRequested: false, resumeStateValid: false, pauseExpired: false,
@@ -47,7 +47,8 @@ describe('LoopRuntimeKernel', () => {
     expect(store.write).not.toHaveBeenCalled();
   });
   it('writes state only after runtime facts satisfy the guard', () => {
-    const { kernel, store } = fixture();
+    const { kernel, store, state } = fixture();
+    state.facts.implementationCompleted = true;
     kernel.transition('VERIFY');
     expect(store.write).toHaveBeenCalledOnce();
     expect(store.read().status).toBe('VERIFY');
