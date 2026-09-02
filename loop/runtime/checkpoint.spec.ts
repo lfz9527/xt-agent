@@ -3,7 +3,7 @@ import { FileCheckpointStore, checkpointInputFingerprint } from './checkpoint';
 import { ExecutionRuntime } from './execution-runtime';
 import type { LoopRuntimeState, LoopRuntimeKernel, StateStore } from './kernel';
 import type { RunRuntime } from './run-runtime';
-import { mkdtempSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -20,19 +20,36 @@ function makeState(status = 'PLAN'): LoopRuntimeState {
   };
 }
 
+const checkpoint = {
+  schemaVersion: 1, runId: 'run-1', stage: 'IMPLEMENT' as const, checkpointId: 'cp-1',
+  inputFingerprint: checkpointInputFingerprint('run-1', 'IMPLEMENT', 1, { implementationCompleted: true }),
+  facts: { implementationCompleted: true }, nextStatus: 'VERIFY', completedAt: new Date().toISOString(),
+};
+
 describe('FileCheckpointStore', () => {
   it('persists checkpoints atomically and validates them after a new store is created', () => {
     const workspace = mkdtempSync(join(tmpdir(), 'loop-checkpoint-'));
     const first = new FileCheckpointStore(workspace);
-    const checkpoint = {
-      schemaVersion: 1, runId: 'run-1', stage: 'IMPLEMENT' as const, checkpointId: 'cp-1',
-      inputFingerprint: checkpointInputFingerprint('run-1', 'IMPLEMENT', 1, { implementationCompleted: true }),
-      facts: { implementationCompleted: true }, nextStatus: 'VERIFY', completedAt: new Date().toISOString(),
-    };
     first.write(checkpoint);
     const second = new FileCheckpointStore(workspace);
     expect(second.read('run-1')).toEqual(checkpoint);
     expect(JSON.parse(readFileSync(join(workspace, 'runtime/runs/run-1/checkpoint.json'), 'utf8')).checkpointId).toBe('cp-1');
+  });
+
+  it('recovers a uniquely named completed temp checkpoint', () => {
+    const workspace = mkdtempSync(join(tmpdir(), 'loop-checkpoint-recovery-'));
+    const directory = join(workspace, 'runtime', 'runs', 'run-1');
+    mkdirSync(directory, { recursive: true });
+    writeFileSync(join(directory, 'checkpoint.json.tmp-1-100-a'), JSON.stringify(checkpoint));
+
+    expect(new FileCheckpointStore(workspace).read('run-1')).toEqual(checkpoint);
+    expect(existsSync(join(directory, 'checkpoint.json'))).toBe(true);
+  });
+
+  it('blocks unsafe run ids before constructing filesystem paths', () => {
+    const workspace = mkdtempSync(join(tmpdir(), 'loop-checkpoint-unsafe-'));
+    expect(() => new FileCheckpointStore(workspace).read('../run-1')).toThrow('[LOOP_BLOCKED] unsafe runId for checkpoint');
+    expect(() => new FileCheckpointStore(workspace).read('run/1')).toThrow('[LOOP_BLOCKED] unsafe runId for checkpoint');
   });
 
   it('recovers a completed stage without invoking the Agent/Tool again', async () => {
