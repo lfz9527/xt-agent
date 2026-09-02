@@ -27,65 +27,46 @@ export class HumanApprovalGate {
   ) {}
 
   async request(runId: string, gate: HumanApprovalGateName, reason: string, provider: HumanApprovalProvider): Promise<HumanApprovalDecision> {
-    const state = this.load(runId);
+    const state = this.assertActive(runId, gate);
     const revision = this.policy.currentRevision();
     if (state.policyRevision !== revision || state.snapshot.policyRevision !== revision) {
       this.blocked(state, 'policy revision mismatch; human approval cannot proceed');
       throw new Error('[LOOP_BLOCKED] policy revision mismatch; human approval cannot proceed');
     }
-    if (!this.isWaitingFor(state.status, gate)) {
-      throw new Error(`[LOOP_BLOCKED] human approval gate ${gate} is not active in ${state.status}`);
-    }
-
-    this.audit?.append({
-      eventId: createRuntimeEventId('approval'),
-      runId,
-      type: 'APPROVAL_REQUESTED',
-      at: new Date().toISOString(),
-      policyRevision: state.policyRevision,
-      payload: { gate, reason },
-    });
+    this.audit?.append({ eventId: createRuntimeEventId('approval'), runId, type: 'APPROVAL_REQUESTED', at: new Date().toISOString(), policyRevision: state.policyRevision, payload: { gate, reason } });
 
     const decision = await provider.request({ runId, gate, reason, policyRevision: state.policyRevision });
-    const latest = this.load(runId);
+    const latest = this.assertActive(runId, gate);
     const currentRevision = this.policy.currentRevision();
     if (latest.policyRevision !== currentRevision || latest.snapshot.policyRevision !== currentRevision) {
       this.blocked(latest, 'policy revision changed while waiting for human approval');
       throw new Error('[LOOP_BLOCKED] policy revision changed while waiting for human approval');
     }
-    if (!this.isWaitingFor(latest.status, gate)) {
-      this.blocked(latest, `human approval gate ${gate} is no longer active`);
-      throw new Error(`[LOOP_BLOCKED] human approval gate ${gate} is no longer active`);
-    }
-
     this.resolve(runId, gate, decision);
-    this.audit?.append({
-      eventId: createRuntimeEventId('approval'),
-      runId,
-      type: 'APPROVAL_RESOLVED',
-      at: new Date().toISOString(),
-      policyRevision: latest.policyRevision,
-      payload: { gate, decision },
-    });
     return decision;
   }
 
   resolve(runId: string, gate: HumanApprovalGateName, decision: HumanApprovalDecision): LoopRuntimeState {
-    const state = this.load(runId);
-    if (!this.isWaitingFor(state.status, gate)) {
-      throw new Error(`[LOOP_BLOCKED] human approval gate ${gate} is not active in ${state.status}`);
+    const state = this.assertActive(runId, gate);
+    const currentRevision = this.policy.currentRevision();
+    if (state.policyRevision !== currentRevision || state.snapshot.policyRevision !== currentRevision) {
+      this.blocked(state, 'policy revision mismatch; human approval cannot be resolved');
+      throw new Error('[LOOP_BLOCKED] policy revision mismatch; human approval cannot be resolved');
     }
     const facts = gate === 'execution'
       ? { ...state.facts, executionApprovalSatisfied: decision === 'approved' }
       : { ...state.facts, finalApprovalSatisfied: decision === 'approved', finalApprovalRejected: decision === 'rejected' };
     const next = { ...state, facts };
     this.stateStoreFactory(runId).write(next);
+    this.audit?.append({ eventId: createRuntimeEventId('approval'), runId, type: 'APPROVAL_RESOLVED', at: new Date().toISOString(), policyRevision: state.policyRevision, payload: { gate, decision } });
     return next;
   }
 
-  private load(runId: string): LoopRuntimeState {
+  private assertActive(runId: string, gate: HumanApprovalGateName): LoopRuntimeState {
     if (!runId.trim()) throw new Error('[LOOP_BLOCKED] runId is required');
-    return this.stateStoreFactory(runId).read();
+    const state = this.stateStoreFactory(runId).read();
+    if (!this.isWaitingFor(state.status, gate)) throw new Error(`[LOOP_BLOCKED] human approval gate ${gate} is not active in ${state.status}`);
+    return state;
   }
 
   private isWaitingFor(status: string, gate: HumanApprovalGateName): boolean {
@@ -93,13 +74,6 @@ export class HumanApprovalGate {
   }
 
   private blocked(state: LoopRuntimeState, reason: string): void {
-    this.audit?.append({
-      eventId: createRuntimeEventId('blocked'),
-      runId: state.runId,
-      type: 'BLOCKED',
-      at: new Date().toISOString(),
-      policyRevision: state.policyRevision,
-      payload: { status: state.status, reason },
-    });
+    this.audit?.append({ eventId: createRuntimeEventId('blocked'), runId: state.runId, type: 'BLOCKED', at: new Date().toISOString(), policyRevision: state.policyRevision, payload: { status: state.status, reason } });
   }
 }
