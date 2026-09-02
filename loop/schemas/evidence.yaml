@@ -1,28 +1,36 @@
-# Loop 证据记录的 Schema 定义。
-# 项目级证据文件默认保存于 <project-root>/.loop/evidence/<id>.yaml。
-
-# Schema 版本号，用于未来兼容不同版本的证据结构。
+# Loop Evidence Schema。
+# 本文件描述一次运行产生的证据事实，不规定项目存储路径，也不描述 Trust。
 version: 1
 
-# 当前证据记录的唯一 ID。
+# Evidence 唯一标识。
 id: <evidence-id>
-# 当前证据对应的 Acceptance Criterion 唯一标识。
+# Evidence 对应的 Acceptance Criterion。
 criterion: <acceptance-criterion-id>
-# 证据类型：test 测试、command 命令、static 静态检查、runtime 运行时检查、review Review、manual 人工检查、other 其他。
+# Evidence 类型：test 测试、command 命令、static 静态检查、runtime 运行时检查、review Review、manual 人工检查、other 其他。
 type: test | command | static | runtime | review | manual | other
-# 证据结果：passed 通过、failed 失败、skipped 跳过。
+# Evidence 结果：passed 通过、failed 失败、skipped 跳过。
 status: passed | failed | skipped
-# Agent 对当前证据可信度的评估：high 高、medium 中、low 低。
+# Evidence 可信度等级。
 confidence: high | medium | low
 
-# 产生该证据时执行的命令；不涉及命令时为空。
+# 产生 Evidence 时执行的命令；不涉及命令时为空。
 command: null
 # 对验证内容和结果的简要说明。
 summary: <what was verified>
 # 命令或验证产生的原始输出；不需要保存时为空。
 output: null
-# 与证据关联的文件、报告或其他产物路径；没有关联产物时为空。
+# 与 Evidence 关联的产物引用；具体存储由宿主 Runtime 管理。
 artifact: null
 
-# 证据记录产生的时间戳。
+# Evidence 产生时间。
 recordedAt: <timestamp>
+
+rules:
+  # Evidence 必须能够关联到验收标准或验证目标。
+  requireCriterionAssociation: true
+  # 失败 Evidence 也必须保留，便于 FIX 和审计。
+  preserveFailures: true
+  # Evidence 不能授予 Permission。
+  cannotGrantPermission: true
+  # Evidence 不能修改 Trust。
+  cannotChangeTrust: true
