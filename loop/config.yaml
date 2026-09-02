@@ -44,6 +44,10 @@ state:
     - review.status
     # 当前生效的用户信任等级。
     - permission.trust.level
+    # 当前生效的执行前审批策略。
+    - permission.approval.beforeExecution
+    # 当前生效的完成前审批策略。
+    - permission.approval.beforeFinalize
 
 # 用户信任等级决定 Loop 的默认授权策略。
 # LOW 是安全默认值，用户可以主动提高信任等级。
@@ -78,10 +82,10 @@ trust:
 
 permissions:
   approval:
-    # 执行前默认的确认策略，可由 Trust Level 覆盖。
-    beforeExecution: required
-    # 完成前默认的确认策略，可由 Trust Level 覆盖。
-    beforeFinalize: required
+    # 执行前审批策略；inherit 表示继承当前 Trust Level 的策略。
+    beforeExecution: inherit
+    # 完成前审批策略；inherit 表示继承当前 Trust Level 的策略。
+    beforeFinalize: inherit
   filesystem:
     # 是否允许 Loop 直接读取项目文件。
     read: allow
@@ -103,7 +107,8 @@ permissions:
     # 是否允许 Loop 发起外部网络请求；confirm 表示需要用户确认。
     request: confirm
 
-# Trust Level 只能提供默认确认策略，不能绕过独立的高风险和安全策略。
+# Trust Level 只能提供默认审批策略，不能绕过独立的高风险和安全策略。
+# permissions.approval 使用 inherit 时继承 Trust Level；显式策略只能收紧权限，不能放宽硬性安全边界。
 
 git:
   # 是否在 Loop 初始化时记录 Git 基线 Commit。
@@ -152,14 +157,14 @@ states:
 
 confirmation:
   goal:
-    # 是否启用 Goal 确认 Gate。
+    # 是否启用 Goal 审批 Gate；是否需要人工确认由 Permission/Trust Policy 决定。
     required: true
-    # 是否要求在进入 IMPLEMENT 前完成 Goal 确认。
+    # 是否要求在进入 IMPLEMENT 前完成 Goal 审批 Gate。
     beforeImplementation: true
   result:
-    # 是否启用最终结果确认 Gate。
+    # 是否启用最终结果审批 Gate；是否需要人工确认由 Permission/Trust Policy 决定。
     required: true
-    # 是否要求在进入 DONE 前完成最终结果确认。
+    # 是否要求在进入 DONE 前完成最终结果审批 Gate。
     beforeDone: true
 
 workflow:
@@ -174,6 +179,8 @@ workflow:
     requireExecutableRedWithoutImplementation: false
 
 completion:
+  # 是否启用完成前审批机制；具体是否需要人工确认由 Permission/Trust Policy 决定。
+  enableFinalApprovalGate: true
   # 是否要求所有 Acceptance Criteria 都满足后才能完成。
   requireAllAcceptanceCriteria: true
   # Agent 自己声称完成是否可以作为验证证据。
@@ -182,5 +189,3 @@ completion:
   requireVerificationPass: true
   # 是否要求 Review 通过后才能完成。
   requireReviewPass: true
-  # 是否将用户确认作为完成条件；具体是否需要人工确认由 Permission/Trust Policy 决定。
-  requireUserConfirmation: true
