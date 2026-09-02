@@ -30,8 +30,12 @@ request:
   acceptanceCriteria: []
 
 plan:
-  # 当前计划内容或宿主 Runtime 对计划的引用。
-  artifact: <runtime-managed-reference>
+  # 当前计划产物在项目 `.loop/plans/` 中的规范引用。
+  artifact: .loop/plans/<run-id>.md
+
+specs:
+  # 当前运行关联的 Spec / PECS 产物引用。
+  artifacts: []
 
 active:
   # 当前正在处理的任务。
