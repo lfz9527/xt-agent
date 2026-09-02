@@ -41,6 +41,15 @@ security:
   # 任意显式 deny 都优先于其他允许规则。
   denyAlwaysWins: true
 
+policy:
+  # P0 决策模型、Policy Snapshot 和 State Transition Guard 的正式契约。
+  decisionSchema: schemas/policy.yaml
+  snapshotSchema: schemas/policy-snapshot.yaml
+  # 每次运行解析策略时必须产生单调 Revision。
+  revisionRequired: true
+  # 执行前必须校验 Snapshot Revision 与当前项目策略 Revision 一致。
+  requireRevisionMatchBeforeExecution: true
+
 workflow:
   # Loop 的固定生命周期状态集合。
   states:
@@ -55,6 +64,7 @@ workflow:
     - FIX
     - DONE
     - BLOCKED
+    - PAUSED
   testFirst:
     # 是否启用 Test First 规则。
     enabled: true
