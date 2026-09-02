@@ -1,114 +1,187 @@
+# Loop configuration schema version.
 version: 1
 
 loop:
+  # Maximum number of execution iterations allowed in a single Loop run.
   maxIterations: 10
+  # Maximum number of FIX attempts allowed before the run becomes BLOCKED.
   maxFixAttempts: 5
+  # Maximum consecutive occurrences of the same failure before the run becomes BLOCKED.
   maxSameFailure: 2
 
 state:
+  # Whether Loop persists its runtime state to the project workspace.
   enabled: true
+  # Path to the project-local persisted Loop state file.
   path: .loop/state.yaml
+  # State fields that must exist for a persisted run to be considered valid.
   requiredFields:
+    # Unique identifier of the current Loop run.
     - run.id
+    # Current state-machine status.
     - run.status
+    # Number of iterations already executed.
     - run.iteration
+    # Number of FIX attempts already consumed.
     - run.fixAttempts
+    # Number of consecutive repeated failures.
     - run.sameFailureCount
+    # Absolute or project-relative root of the current project.
     - context.projectRoot
+    # Git commit used as the run baseline.
     - context.baselineCommit
+    # Git branch recorded at run initialization.
     - context.baselineBranch
+    # User-defined goal for the current run.
     - request.goal
+    # Acceptance criteria that define successful completion.
     - request.acceptanceCriteria
+    # Currently active task or phase.
     - active.phase
+    # Current verification result status.
     - verification.status
+    # Current review result status.
     - review.status
+    # Persisted trust level used by the permission policy.
     - permission.trust.level
 
-# Trust is the user's default authorization policy for Loop.
-# LOW is the secure default. Users may explicitly raise the level.
+# User trust controls the default authorization policy for Loop.
+# LOW is the secure default; users may explicitly raise the trust level.
 trust:
+  # Current trust level applied to this Loop configuration.
   level: low
   levels:
     low:
       approval:
+        # Whether execution may pass the pre-implementation approval gate automatically.
         beforeExecution: required
+        # Whether completion may pass the final approval gate automatically.
         beforeFinalize: required
     medium:
       approval:
+        # Medium trust allows Loop to start implementation without asking again.
         beforeExecution: automatic
+        # Medium trust still requires the user to accept the final result.
         beforeFinalize: required
     high:
       approval:
+        # High trust allows Loop to pass the pre-implementation approval gate automatically.
         beforeExecution: automatic
+        # High trust allows Loop to pass the final approval gate automatically.
         beforeFinalize: automatic
     full:
       approval:
+        # Full trust allows the pre-implementation approval gate to be automatic.
         beforeExecution: automatic
+        # Full trust allows the final approval gate to be automatic.
         beforeFinalize: automatic
 
 permissions:
   approval:
+    # Default policy for approval before implementation; trust levels may override this.
     beforeExecution: required
+    # Default policy for approval before entering DONE; trust levels may override this.
     beforeFinalize: required
   filesystem:
+    # Whether Loop may inspect project files without additional approval.
     read: allow
+    # Whether Loop may modify project files without additional approval.
     write: allow
   shell:
+    # Whether Loop may execute normal project shell commands.
     execute: allow
+    # Whether potentially destructive or otherwise high-risk shell commands require approval.
     dangerous: confirm
   git:
+    # Whether Loop may inspect Git state and history without additional approval.
     read: allow
+    # Whether Loop may create Git commits without additional approval.
     commit: confirm
+    # Whether Loop may push commits to a remote without additional approval.
     push: confirm
   network:
+    # Whether external network requests require explicit user approval.
     request: confirm
 
-# Trust levels may provide default approval behavior, but must not bypass
-# independent high-risk or safety policies.
+# Trust levels provide default approval behavior only.
+# They must never bypass independent high-risk or safety policies.
 
 git:
+  # Whether the Git baseline commit is captured when a Loop run starts.
   captureBaselineAtInit: true
+  # Whether the Git branch is recorded in the Loop state.
   recordBranch: true
+  # Whether a dirty working tree blocks Loop initialization.
   requireCleanBaseline: false
+  # Whether the Git diff from the baseline is captured before completion.
   captureDiffBeforeCompletion: true
 
 evidence:
+  # Whether Loop records verification and review evidence.
   enabled: true
+  # Directory where run evidence is stored.
   path: .loop/evidence/
+  # Whether every required acceptance criterion must have associated evidence.
   requireAcceptanceCriterionAssociation: true
+  # Whether failed verification evidence is preserved for later FIX iterations.
   preserveFailures: true
 
+# Complete set of states supported by the Loop state machine.
 states:
+  # Run initialization and context loading.
   - INIT
+  # Goal and acceptance-criteria definition/review.
   - GOAL_REVIEW
+  # Approval gate before planning and implementation.
   - WAITING_FOR_GOAL_CONFIRMATION
+  # Convert the confirmed goal into executable tasks.
   - PLAN
+  # Execute the current implementation task.
   - IMPLEMENT
+  # Verify the implementation against the acceptance criteria.
   - VERIFY
+  # Review implementation quality, evidence, rules, and Git diff.
   - REVIEW
+  # Approval gate before completing the run.
   - READY_FOR_CONFIRMATION
+  # Apply fixes after failed verification, review, or user rejection.
   - FIX
+  # Successful terminal state.
   - DONE
+  # Terminal state for unsafe or impossible continuation.
   - BLOCKED
 
 confirmation:
   goal:
+    # Whether the goal confirmation gate exists as a required workflow checkpoint.
     required: true
+    # Whether the goal must be approved before implementation can begin.
     beforeImplementation: true
   result:
+    # Whether final result confirmation is part of the completion contract.
     required: true
+    # Whether the result must be accepted before entering DONE.
     beforeDone: true
 
 workflow:
   testFirst:
+    # Whether the project's test-first policy is enabled for Loop execution.
     enabled: true
+    # Whether test files must be created or modified before implementation files when policy requires it.
     testFilesBeforeImplementation: true
+    # Whether implementation-file modification is blocked during the test-first phase.
     implementationModificationBlockedDuringTestPhase: true
+    # Whether a deliberately failing executable test is mandatory before implementation.
     requireExecutableRedWithoutImplementation: false
 
 completion:
+  # Whether every required acceptance criterion must be satisfied before completion.
   requireAllAcceptanceCriteria: true
+  # Whether an Agent's completion claim can count as verification evidence.
   agentClaimIsEvidence: false
+  # Whether applicable verification must pass before completion.
   requireVerificationPass: true
+  # Whether review must pass before completion.
   requireReviewPass: true
+  # Whether user confirmation is part of the completion contract when policy requires it.
   requireUserConfirmation: true
