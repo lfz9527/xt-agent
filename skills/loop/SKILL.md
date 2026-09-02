@@ -5,20 +5,20 @@ description: Run the project Loop v1 workflow. This skill is ONLY activated by a
 
 # Loop v1
 
-Loop 是通用的、有状态的 Agent 任务控制协议。Agent 负责工作；Loop 负责生命周期、Policy Resolution、Permission、Trust、Approval、Safety 和 Evidence。
+Loop 是通用的、有状态的 Agent 任务控制协议。Agent 负责工作；Loop 负责生命周期、Policy Resolution、Permission、Trust、Approval、Safety、Resource Governance 和 Evidence。
 
 ## 项目 Loop 工作区
 
-每个项目只需要一个根目录 `.loop/` 目录。`.loop/` 是该项目所有 Loop 配置与运行产物的统一工作区。
+每个项目只需要一个根目录 `.loop/`。`.loop/` 是该项目所有 Loop 配置与运行产物的统一工作区。一个 Project 可以存在多个 Run；Run 不再通过项目级互斥锁串行化。
 
 ```text
 <project-root>
 ├── .loop/
 │   ├── config.yaml
 │   ├── runtime/
-│   │   ├── state.yaml
+│   │   ├── runs/<run-id>/state.yaml
 │   │   ├── history.jsonl
-│   │   └── policy-snapshot.yaml
+│   │   └── locks/<resource>.lock
 │   ├── plans/<run-id>.md
 │   ├── specs/<run-id>/<spec-id>.pecs.md
 │   ├── evidence/<run-id>/<evidence-id>.yaml
@@ -31,38 +31,88 @@ Loop 是通用的、有状态的 Agent 任务控制协议。Agent 负责工作�
 ## 配置与运行时边界
 
 - `.loop/config.yaml`：项目 Trust、Permission、项目级 Policy，唯一真实配置来源。
-- `.loop/runtime/`：Runtime 状态、历史和 Policy Snapshot。
+- `.loop/runtime/runs/<run-id>/state.yaml`：每个 Run 独立的 Runtime State。
+- `.loop/runtime/history.jsonl`：跨 Run 的 append-only 审计事实，每条事件必须携带 Run ID。
+- `.loop/runtime/locks/`：资源级并发控制，不存在项目级 `run.lock`。
 - `loop/config.yaml`：引擎能力、固定工作流、默认限制和 Trust 等级语义。
 - `loop/schemas/`：State、Policy、Policy Snapshot、Evidence、Artifact 契约。
 - `loop/runtime/enforcement.ts`：Runtime Enforcement 原语。
-- `loop/runtime/kernel.ts`：Runtime Enforcement 集成边界；实际 Capability Executor 和 StateStore 必须通过 Kernel。
-- `loop/runtime/persistence.ts`：文件持久化边界；`state.yaml` 原子写入、Schema 校验、崩溃恢复，以及 `history.jsonl` append-only 审计。
+- `loop/runtime/resource-policy.ts`：资源可修改性与 Capability 授权规则。
+- `loop/runtime/lock.ts`：资源级互斥锁。
+- `loop/runtime/kernel.ts`：Runtime Enforcement 集成边界；实际 Capability Executor、Resource Mutation 和 StateStore 必须通过 Kernel。
+- `loop/runtime/persistence.ts`：文件持久化边界；State 原子写入、Schema 校验、崩溃恢复，以及 `history.jsonl` append-only 审计。
+
+## 核心权限模型
+
+Loop 必须严格区分四个问题：
 
 ```text
-.loop/config.yaml
-       ↓
-Project Policy
-       ↓
-Engine Default
-       ↓
-Trust Resolution
-       ↓
-Effective Policy
-       ↓
-Policy Snapshot + Revision
-       ↓
-Runtime Kernel
-       ├── Capability Enforcement → Approval → Capability Executor
-       └── Transition Enforcement → Atomic StateStore → Audit Log
+Resource Policy
+    ↓
+这个资源允许修改吗？
+    ↓
+Capability
+    ↓
+当前 Run 是否拥有修改该资源的能力？
+    ↓
+Approval
+    ↓
+是否满足当前动作的用户授权要求？
+    ↓
+Resource Lock
+    ↓
+现在是否有其他 Run 正在修改同一资源？
+    ↓
+Mutation
 ```
 
-## Trigger
+### Resource Policy
 
-Loop 只能由显式 `/loop` 调用启动或恢复。普通对话不得隐式启动、恢复或授权 Loop 修改仓库。
+资源分为：
+
+- `readonly`：只能读取，任何 Mutation 都拒绝。
+- `mutable`：允许修改，但必须命中明确的 `allowedCapabilities`。
+- `protected`：默认禁止修改；只有明确授权的特权 Capability 可以修改。
+
+Lock **不负责决定资源能不能修改**。Resource Policy 才是“可修改性”的事实来源。
+
+默认资源策略包括：
+
+- `working-tree`：`mutable`，允许代码、测试和普通产物修改。
+- `.loop/config.yaml`：`protected`，仅 `loop.policy.modify` 可修改。
+- `.loop/policies`：`protected`，仅 `loop.policy.modify` 可修改。
+- `.loop/schemas`：`protected`，仅 `loop.schema.modify` 可修改。
+- `.git`：`readonly`，禁止直接 Mutation。
+
+### Resource Lock
+
+Resource Lock 只解决并发问题：
+
+```text
+Run A → working-tree/src-a.lock → MODIFY
+Run B → working-tree/src-b.lock → MODIFY
+Run C → working-tree/src-a.lock → BLOCKED / WAIT
+```
+
+因此多个 Run 可以同时进行分析、Plan、Review，甚至修改互不冲突的资源；只有同一资源的竞争修改需要互斥。
+
+禁止重新引入 `.loop/runtime/run.lock` 这种 Project 级 Run Mutex。
+
+### Run ID
+
+Run ID 是独立执行上下文的稳定身份，用于：
+
+- 绑定独立 Runtime State。
+- 绑定 Plan / Spec / Evidence / Review 产物。
+- 绑定 Policy Snapshot 与 Approval Event。
+- 作为 Resource Lock 的 owner。
+- 在 Audit Log 中追踪完整生命周期。
+
+Run ID 不是项目锁的持有人 ID。
 
 ## Runtime Enforcement
 
-Runtime Enforcement 是实际执行边界，不是文档约定。所有 Capability 执行和 State Transition 都必须先经过 `LoopRuntimeKernel`。
+所有 Capability 执行、Resource Mutation 和 State Transition 都必须先经过 `LoopRuntimeKernel`。
 
 ### Capability
 
@@ -88,24 +138,40 @@ CONFIRM → ApprovalProvider → 记录 Approval Event → 重新校验 Revision
 DENY / BLOCKED → 不调用 Executor + 记录 BLOCKED Event
 ```
 
-强制规则：
+### Resource Mutation
 
-- Snapshot 必须属于当前 Run。
-- Snapshot Revision、Runtime Revision、当前项目 Revision 必须一致。
-- Revision mismatch 必须 `BLOCKED`。
-- `deny` 永远不能被 Approval、Trust 或 Agent 意图覆盖。
-- `confirm` 不能直接执行；只有 `approved` 或 `automatic` 才能继续。
-- Approval 请求与结果必须进入 append-only `history.jsonl`，并带唯一 Event ID、Run ID 和 Policy Revision。
-- Approval 完成后必须再次读取当前 Policy Revision，再进入 Executor。
-- 高风险 Capability 没有显式 `confirm` 安全路径时不得执行。
-- Capability Executor 不得自行绕过 Kernel 调用底层能力。
-
-### State Transition
-
-State 更新不得直接写入 `status`。必须调用 `LoopRuntimeKernel.transition()`，由 Kernel 先验证 Revision、允许拓扑和对应 Transition Guards，再写入 StateStore。
+实际修改资源必须走：
 
 ```text
-Current State
+Kernel.mutateResource()
+       ↓
+Resource Policy
+       ↓
+Capability allowed?
+       ↓
+Resource Lock
+       ↓
+Mutation Executor
+       ↓
+Release Lock
+```
+
+强制规则：
+
+- `readonly` 永远不能 Mutation。
+- `mutable` 只有声明过的 Capability 可以 Mutation。
+- `protected` 只有显式特权 Capability 可以 Mutation。
+- Mutation 没有 Resource Lock 时必须 `BLOCKED`。
+- Lock owner 必须是当前 Run；其他 Run 不得释放或冒用。
+- Lock 存在且无法确认所有权时必须保持阻断，不得猜测或强制抢占。
+- Resource Policy 与 Resource Lock 不得互相替代。
+
+## State Transition
+
+State 更新不得直接写入 `status`。必须调用 `LoopRuntimeKernel.transition()`，由 Kernel 先验证 Revision、允许拓扑和对应 Transition Guards，再写入当前 Run 的 StateStore。
+
+```text
+Current Run State
     ↓
 Kernel.transition()
     ↓
@@ -134,22 +200,20 @@ P1.5 Runtime 至少强制：
 - `PAUSED` 只能通过合法 Resume Transition 恢复。
 - `BLOCKED` 不允许原地 Resume。
 
-### Persistent State / Crash Recovery
+## Persistent State / Crash Recovery
 
-- Runtime State 的唯一持久化事实是项目 `.loop/runtime/state.yaml`。
+- 每个 Run 的唯一 Runtime State 应位于 `.loop/runtime/runs/<run-id>/state.yaml`。
 - State 文件必须包含 `schemaVersion`；未知版本必须 `BLOCKED`，不能猜测兼容。
 - State 写入必须采用临时文件 + atomic rename，禁止直接覆盖生产 State。
-- 进程在 rename 前崩溃时，Runtime 可以恢复完整临时 State；不完整或无法解析的 State 必须 `BLOCKED`。
-- State 的 `runId`、`policyRevision` 与 Policy Snapshot 必须一致，否则 `BLOCKED`。
-- `.loop/runtime/history.jsonl` 是 append-only Runtime Audit Log；历史事件不得通过重写 State 伪造。
+- `.loop/runtime/history.jsonl` 是跨 Run 的 append-only Runtime Audit Log；历史事件不得通过重写 State 伪造。
 - Approval、State Transition 和 BLOCKED 事实必须带唯一 Event ID、Run ID、时间和 Policy Revision。
 - `.loop/` 下的持久化文件不是 Agent 的第二套权限配置；Policy 真相仍只有项目 `.loop/config.yaml`。
 
-### PAUSED / BLOCKED
+## PAUSED / BLOCKED
 
 - `PAUSED` 是可恢复等待态；恢复必须由 Runtime 校验原状态、Snapshot / Policy Revision 和产物完整性。
 - `BLOCKED` 是安全终止态；不得原地 Resume。
-- Policy Revision mismatch、无法解析 Policy、非法 Transition 或安全拒绝都不得降级成 `PAUSED`。
+- Policy Revision mismatch、无法解析 Policy、非法 Transition、资源权限拒绝或资源锁冲突都不得伪装成成功。
 
 ## Policy Revision
 
@@ -189,9 +253,9 @@ VERIFY / REVIEW / READY_FOR_CONFIRMATION → FIX → IMPLEMENT
 
 ## INIT / Resume
 
-INIT：定位项目根目录 → 加载规则 → 读取 `.loop/config.yaml` → 创建 Runtime → 捕获 Git baseline → 解析 Policy → 生成 Snapshot / Revision → 原子持久化初始 State。
+INIT：定位项目根目录 → 加载规则 → 读取 `.loop/config.yaml` → 创建 Run ID → 创建该 Run 的 Runtime State → 捕获 Git baseline → 解析 Policy → 生成 Snapshot / Revision → 原子持久化初始 State。
 
-Resume：读取持久化 State → 必须先通过 Schema / Snapshot / Run ID 校验 → 校验项目和 Git 上下文 → 重新解析当前 Policy → 比较 Revision → Revision mismatch 则 `BLOCKED` → 校验 run-id 对应的 Plan / Spec / Evidence / Review → 通过 Transition Guard 恢复。
+Resume：读取对应 Run 的持久化 State → 必须先通过 Schema / Snapshot / Run ID 校验 → 校验项目和 Git 上下文 → 重新解析当前 Policy → 比较 Revision → Revision mismatch 则 `BLOCKED` → 校验该 Run 的 Plan / Spec / Evidence / Review → 通过 Transition Guard 恢复。
 
 不得依赖聊天历史猜测 Runtime 状态。
 
