@@ -1,35 +1,18 @@
+import { randomUUID } from 'node:crypto';
 import type { LoopRuntimeState, LoopRuntimeKernel, StateStore } from './kernel';
 import type { RunRuntime } from './run-runtime';
+import { checkpointInputFingerprint, type CheckpointStore } from './checkpoint';
 
-export type ExecutionStage =
-  | 'GOAL_REVIEW'
-  | 'PLAN'
-  | 'IMPLEMENT'
-  | 'VERIFY'
-  | 'REVIEW'
-  | 'FIX'
-  | 'READY_FOR_CONFIRMATION';
+export type ExecutionStage = 'GOAL_REVIEW' | 'PLAN' | 'IMPLEMENT' | 'VERIFY' | 'REVIEW' | 'FIX' | 'READY_FOR_CONFIRMATION';
+export interface StageResult { facts?: Partial<LoopRuntimeState['facts']>; checkpoint?: string; }
+export interface StageExecutor { execute(stage: ExecutionStage, state: LoopRuntimeState): Promise<StageResult>; }
+export interface ExecutionRuntimeOptions { maxFixAttempts?: number; checkpointStore?: CheckpointStore; }
 
-export interface StageResult {
-  facts?: Partial<LoopRuntimeState['facts']>;
-  checkpoint?: string;
-}
-
-export interface StageExecutor {
-  execute(stage: ExecutionStage, state: LoopRuntimeState): Promise<StageResult>;
-}
-
-export interface ExecutionRuntimeOptions {
-  maxFixAttempts?: number;
-}
-
-/**
- * P2-3 Execution Runtime：把 Run Lifecycle、State Guard 和 Stage Executor 串成可恢复的执行循环。
- * 每个阶段都先执行，再 checkpoint facts，最后通过 Kernel 做受保护的状态迁移。
- */
+/** P2-3 Execution Runtime：阶段完成后持久化 checkpoint；重启后优先恢复 checkpoint，避免重复调用 Agent/Tool。 */
 export class ExecutionRuntime {
   private readonly fixAttempts = new Map<string, number>();
   private readonly maxFixAttempts: number;
+  private readonly checkpointStore?: CheckpointStore;
 
   constructor(
     private readonly runs: RunRuntime,
@@ -39,16 +22,16 @@ export class ExecutionRuntime {
     options: ExecutionRuntimeOptions = {},
   ) {
     this.maxFixAttempts = options.maxFixAttempts ?? 3;
-    if (!Number.isInteger(this.maxFixAttempts) || this.maxFixAttempts < 1) {
-      throw new Error('[LOOP_BLOCKED] maxFixAttempts must be a positive integer');
-    }
+    this.checkpointStore = options.checkpointStore;
+    if (!Number.isInteger(this.maxFixAttempts) || this.maxFixAttempts < 1) throw new Error('[LOOP_BLOCKED] maxFixAttempts must be a positive integer');
   }
 
-  /** 执行一个 checkpoint-safe step；不会跨越多个业务阶段。 */
   async step(runId: string): Promise<LoopRuntimeState> {
     let state = this.runs.loadRun(runId);
     const stage = this.stageFor(state.status);
     if (!stage) return state;
+    const recovered = this.recoverCheckpoint(state, stage);
+    if (recovered) return recovered;
 
     if (stage === 'FIX') {
       const attempts = (this.fixAttempts.get(runId) ?? 0) + 1;
@@ -63,67 +46,64 @@ export class ExecutionRuntime {
     }
 
     const result = await this.executor.execute(stage, state);
-    if (result.facts) {
-      this.updateFacts(runId, result.facts);
-      state = this.runs.loadRun(runId);
-    }
-
+    if (result.facts) { this.updateFacts(runId, result.facts); state = this.runs.loadRun(runId); }
     const next = this.nextStatus(state, stage);
+
+    if (this.checkpointStore) {
+      this.checkpointStore.write({
+        schemaVersion: 1,
+        runId,
+        stage,
+        checkpointId: result.checkpoint ?? randomUUID(),
+        inputFingerprint: checkpointInputFingerprint(runId, stage, state.policyRevision, state.facts as unknown as Record<string, unknown>),
+        facts: state.facts as unknown as Record<string, unknown>,
+        nextStatus: next,
+        completedAt: new Date().toISOString(),
+      });
+    }
     if (next) this.kernel.transition(next);
+    if (next && this.checkpointStore) this.checkpointStore.clear(runId);
     return this.runs.loadRun(runId);
   }
 
-  /** 从当前 checkpoint 持续推进，直到等待人工确认、暂停、完成或阻塞。 */
   async runUntilHalt(runId: string): Promise<LoopRuntimeState> {
     for (;;) {
       const state = this.runs.loadRun(runId);
-      if (['PAUSED', 'DONE', 'BLOCKED', 'WAITING_FOR_GOAL_CONFIRMATION', 'READY_FOR_CONFIRMATION'].includes(state.status)) {
-        return state;
-      }
+      if (['PAUSED', 'DONE', 'BLOCKED', 'WAITING_FOR_GOAL_CONFIRMATION', 'READY_FOR_CONFIRMATION'].includes(state.status)) return state;
       await this.step(runId);
     }
   }
 
-  /** 清理某个 Run 的内存 retry 计数；持久化事实仍以 Runtime State 为准。 */
-  resetFixAttempts(runId: string): void {
-    this.fixAttempts.delete(runId);
+  resetFixAttempts(runId: string): void { this.fixAttempts.delete(runId); }
+
+  private recoverCheckpoint(state: LoopRuntimeState, stage: ExecutionStage): LoopRuntimeState | undefined {
+    if (!this.checkpointStore) return undefined;
+    const checkpoint = this.checkpointStore.read(state.runId);
+    if (!checkpoint || checkpoint.stage !== stage) return undefined;
+    const expected = checkpointInputFingerprint(state.runId, stage, state.policyRevision, state.facts as unknown as Record<string, unknown>);
+    if (checkpoint.inputFingerprint !== expected) throw new Error('[LOOP_BLOCKED] execution checkpoint input fingerprint does not match runtime state');
+    this.stateStoreFactory(state.runId).write({ ...state, facts: { ...state.facts, ...checkpoint.facts } });
+    if (checkpoint.nextStatus) this.kernel.transition(checkpoint.nextStatus);
+    this.checkpointStore.clear(state.runId);
+    return this.runs.loadRun(state.runId);
   }
 
   private updateFacts(runId: string, facts: Partial<LoopRuntimeState['facts']>): void {
-    const store = this.stateStoreFactory(runId);
-    const state = store.read();
+    const store = this.stateStoreFactory(runId); const state = store.read();
     store.write({ ...state, facts: { ...state.facts, ...facts } });
   }
-
   private stageFor(status: string): ExecutionStage | undefined {
-    const stages: Record<string, ExecutionStage> = {
-      INIT: 'GOAL_REVIEW',
-      GOAL_REVIEW: 'GOAL_REVIEW',
-      PLAN: 'PLAN',
-      IMPLEMENT: 'IMPLEMENT',
-      VERIFY: 'VERIFY',
-      REVIEW: 'REVIEW',
-      FIX: 'FIX',
-    };
-    return stages[status];
+    return ({ INIT: 'GOAL_REVIEW', GOAL_REVIEW: 'GOAL_REVIEW', PLAN: 'PLAN', IMPLEMENT: 'IMPLEMENT', VERIFY: 'VERIFY', REVIEW: 'REVIEW', FIX: 'FIX' } as Record<string, ExecutionStage>)[status];
   }
-
   private nextStatus(state: LoopRuntimeState, stage: ExecutionStage): string | undefined {
     switch (stage) {
-      case 'GOAL_REVIEW':
-        return state.status === 'INIT' ? 'GOAL_REVIEW' : 'WAITING_FOR_GOAL_CONFIRMATION';
-      case 'PLAN':
-        return 'IMPLEMENT';
-      case 'IMPLEMENT':
-        return 'VERIFY';
-      case 'VERIFY':
-        return state.facts.verificationPassed ? 'REVIEW' : state.facts.verificationFailed ? 'FIX' : undefined;
-      case 'REVIEW':
-        return state.facts.reviewPassed ? 'READY_FOR_CONFIRMATION' : state.facts.reviewFailed ? 'FIX' : undefined;
-      case 'FIX':
-        return 'IMPLEMENT';
-      default:
-        return undefined;
+      case 'GOAL_REVIEW': return state.status === 'INIT' ? 'GOAL_REVIEW' : 'WAITING_FOR_GOAL_CONFIRMATION';
+      case 'PLAN': return 'IMPLEMENT';
+      case 'IMPLEMENT': return 'VERIFY';
+      case 'VERIFY': return state.facts.verificationPassed ? 'REVIEW' : state.facts.verificationFailed ? 'FIX' : undefined;
+      case 'REVIEW': return state.facts.reviewPassed ? 'READY_FOR_CONFIRMATION' : state.facts.reviewFailed ? 'FIX' : undefined;
+      case 'FIX': return 'IMPLEMENT';
+      default: return undefined;
     }
   }
 }
