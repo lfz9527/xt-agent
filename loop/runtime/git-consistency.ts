@@ -16,29 +16,23 @@ export interface GitConsistencyResult {
 export function captureGitBaseline(cwd: string): GitBaseline {
   const commit = git(cwd, ['rev-parse', 'HEAD']);
   const branch = git(cwd, ['branch', '--show-current']);
-  return {
-    commit,
-    branch,
-    worktreeFingerprint: worktreeFingerprint(cwd),
-  };
+  return { commit, branch, worktreeFingerprint: worktreeFingerprint(cwd) };
 }
 
 /**
- * 每次执行共享工作区前重新计算 Fingerprint。
- * 只要出现 Loop 未登记的漂移，Runtime 必须阻断，而不是猜测变更归属。
+ * 每次共享工作区操作前重新计算 Fingerprint。
+ * Commit、Branch 或工作区状态任一发生非预期变化，都必须阻断。
  */
 export function verifyGitBaseline(cwd: string, baseline: GitBaseline, expectedWorktreeFingerprint?: string): GitConsistencyResult {
   const current = captureGitBaseline(cwd);
-  if (current.branch !== baseline.branch) {
-    return { consistent: false, reason: 'git branch changed since run baseline', current };
-  }
-  if (expectedWorktreeFingerprint && current.worktreeFingerprint !== expectedWorktreeFingerprint) {
+  if (current.commit !== baseline.commit) return { consistent: false, reason: 'git HEAD changed since run baseline', current };
+  if (current.branch !== baseline.branch) return { consistent: false, reason: 'git branch changed since run baseline', current };
+  if (expectedWorktreeFingerprint !== undefined && current.worktreeFingerprint !== expectedWorktreeFingerprint) {
     return { consistent: false, reason: 'git worktree changed outside the expected mutation state', current };
   }
   return { consistent: true, reason: 'git baseline is consistent', current };
 }
 
-/** 仅使用 Git 原生状态输出生成稳定指纹，避免依赖平台特定文件时间。 */
 export function worktreeFingerprint(cwd: string): string {
   return git(cwd, ['status', '--porcelain=v1', '--untracked-files=all']);
 }
