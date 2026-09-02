@@ -1,4 +1,4 @@
-# Loop 配置文件版本。
+# Loop 默认配置文件版本。
 version: 1
 
 loop:
@@ -12,8 +12,8 @@ loop:
 state:
   # 是否启用 Loop 运行状态持久化。
   enabled: true
-  # 项目级 Loop 状态文件路径。
-  path: .loop/state.yaml
+  # Loop Runtime 状态文件路径；具体项目可按自身运行时实现调整。
+  path: .loop-state.yaml
   # 持久化状态必须包含的字段。
   requiredFields:
     # 当前 Loop 运行的唯一 ID。
@@ -42,18 +42,12 @@ state:
     - verification.status
     # 当前 Review 结果状态。
     - review.status
-    # 当前生效的用户信任等级。
-    - permission.trust.level
-    # 当前生效的执行前审批策略。
-    - permission.approval.beforeExecution
-    # 当前生效的完成前审批策略。
-    - permission.approval.beforeFinalize
+    # 本次运行解析得到的权限快照。
+    - permission.snapshot
 
-# 用户信任等级决定 Loop 的默认授权策略。
-# LOW 是安全默认值，用户可以主动提高信任等级。
+# Trust Level 是项目级配置。
+# 项目通过根目录唯一的 `.loop` 文件选择当前 Trust Level；这里仅定义通用等级的行为。
 trust:
-  # 当前生效的信任等级，可选 low、medium、high、full。
-  level: low
   levels:
     low:
       approval:
@@ -82,33 +76,13 @@ trust:
 
 permissions:
   approval:
-    # 执行前审批策略；inherit 表示继承当前 Trust Level 的策略。
+    # 执行前审批策略；项目未覆盖时继承项目 Trust Level。
     beforeExecution: inherit
-    # 完成前审批策略；inherit 表示继承当前 Trust Level 的策略。
+    # 完成前审批策略；项目未覆盖时继承项目 Trust Level。
     beforeFinalize: inherit
-  filesystem:
-    # 是否允许 Loop 直接读取项目文件。
-    read: allow
-    # 是否允许 Loop 直接修改项目文件。
-    write: allow
-  shell:
-    # 是否允许 Loop 执行普通 Shell 命令。
-    execute: allow
-    # 是否允许 Loop 执行高风险或破坏性 Shell 命令；confirm 表示需要用户确认。
-    dangerous: confirm
-  git:
-    # 是否允许 Loop 直接读取 Git 状态、历史和 Diff。
-    read: allow
-    # 是否允许 Loop 创建 Git Commit；confirm 表示需要用户确认。
-    commit: confirm
-    # 是否允许 Loop 向远程仓库 Push；confirm 表示需要用户确认。
-    push: confirm
-  network:
-    # 是否允许 Loop 发起外部网络请求；confirm 表示需要用户确认。
-    request: confirm
 
 # Trust Level 只能提供默认审批策略，不能绕过独立的高风险和安全策略。
-# permissions.approval 使用 inherit 时继承 Trust Level；显式策略只能收紧权限，不能放宽硬性安全边界。
+# Capability Permission 可以由项目 `.loop` 文件覆盖，但显式拒绝和硬性安全边界始终优先。
 
 git:
   # 是否在 Loop 初始化时记录 Git 基线 Commit。
@@ -123,8 +97,8 @@ git:
 evidence:
   # 是否启用验证和 Review 证据记录。
   enabled: true
-  # Loop 运行证据的保存目录。
-  path: .loop/evidence/
+  # Loop Runtime 证据的保存目录；不属于项目级 `.loop` 配置。
+  path: .loop-evidence/
   # 是否要求每一个验收标准都关联对应的证据。
   requireAcceptanceCriterionAssociation: true
   # 是否保留验证失败产生的证据，供后续 FIX 使用。
