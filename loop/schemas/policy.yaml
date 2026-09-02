@@ -1,0 +1,87 @@
+# Loop Policy Decision Schema。
+# 本文件定义 Permission、Security、Trust、Approval 和最终执行决策之间的统一契约。
+version: 1
+
+capabilityDecision:
+  values:
+    - deny
+    - allow
+    - confirm
+  # deny 是终止决策；allow 可直接进入 Gate；confirm 必须进入 Approval。
+  semantics:
+    deny: terminal_rejection
+    allow: capability_permitted
+    confirm: capability_permitted_with_approval
+
+approvalDecision:
+  values:
+    - required
+    - automatic
+    - approved
+    - rejected
+  # required / automatic 是 Gate 策略结果；approved / rejected 是实际人工事件结果。
+
+resolution:
+  # Permission 首先决定 Capability；Security 对高风险能力独立裁决；Trust 只影响 Trust-controlled Gate。
+  steps:
+    - permission
+    - security
+    - trust
+    - approval
+    - gate
+  denyAlwaysWins: true
+  highRiskRequiresIndependentPolicy: true
+  confirmRequiresApproval: true
+  # allow 与 confirm 不是互相覆盖的优先级，而是两条不同的执行路径。
+  branching:
+    deny: DENY
+    allow: GATE
+    confirm: APPROVAL
+
+policySnapshot:
+  required: true
+  fields:
+    - policyRevision
+    - trust
+    - permissions
+    - effectivePolicy
+    - resolvedAt
+  requireRevisionMatchBeforeExecution: true
+  revisionMismatchAction: BLOCKED
+  immutableAfterRunCreation: true
+
+transitionGuards:
+  requireGuards: true
+  WAITING_FOR_GOAL_CONFIRMATION_to_PLAN:
+    requires:
+      - gate.beforeExecution == approved
+      - policy.policyRevision == currentPolicyRevision
+  VERIFY_to_REVIEW:
+    requires:
+      - verification.status == passed
+  REVIEW_to_READY_FOR_CONFIRMATION:
+    requires:
+      - review.status == passed
+  READY_FOR_CONFIRMATION_to_DONE:
+    requires:
+      - acceptanceCriteria.allPassed == true
+      - verification.status == passed
+      - review.status == passed
+      - gate.beforeFinalize in [approved, automatic]
+      - policy.policyRevision == currentPolicyRevision
+  PAUSED_to_previous_state:
+    requires:
+      - resumeRequested == true
+      - resumeStateValid == true
+
+blocked:
+  terminal: true
+  resumeInPlace: false
+
+paused:
+  terminal: false
+  resumeInPlace: true
+  reasons:
+    - approval_required
+    - external_dependency
+    - user_requested_pause

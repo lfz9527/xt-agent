@@ -1,62 +1,67 @@
+# Loop 引擎定义配置。
+# 本文件只描述引擎能力、默认限制和固定安全规则，不保存具体项目配置。
+# 项目的实际配置与运行产物统一落在项目根目录 `.loop/` 工作区。
 version: 1
 
-loop:
+engine:
+  # 单次 Loop 允许的最大迭代次数。
   maxIterations: 10
+  # 单次 Loop 允许的最大修复次数。
   maxFixAttempts: 5
+  # 同一失败连续出现的最大次数。
   maxSameFailure: 2
 
-state:
-  enabled: true
-  path: .loop/state.yaml
-  requiredFields:
-    - run.id
-    - run.status
-    - run.iteration
-    - run.fixAttempts
-    - run.sameFailureCount
-    - context.projectRoot
-    - context.baselineCommit
-    - context.baselineBranch
-    - request.goal
-    - request.acceptanceCriteria
-    - active.phase
-    - verification.status
-    - review.status
+trust:
+  # Trust 是项目级属性，这里只定义等级的通用审批语义。
+  levels:
+    low:
+      beforeExecution: required
+      beforeFinalize: required
+    medium:
+      beforeExecution: automatic
+      beforeFinalize: required
+    high:
+      beforeExecution: automatic
+      beforeFinalize: automatic
+    full:
+      beforeExecution: automatic
+      beforeFinalize: automatic
 
-git:
-  captureBaselineAtInit: true
-  recordBranch: true
-  requireCleanBaseline: false
-  captureDiffBeforeCompletion: true
+security:
+  # 高风险能力必须经过独立安全策略判断，不能仅靠 Trust 放行。
+  highRiskRequiresIndependentPolicy: true
+  # 任意显式 deny 都优先于其他允许规则。
+  denyAlwaysWins: true
 
-evidence:
-  enabled: true
-  path: .loop/evidence/
-  requireAcceptanceCriterionAssociation: true
-  preserveFailures: true
-
-states:
-  - INIT
-  - GOAL_REVIEW
-  - WAITING_FOR_GOAL_CONFIRMATION
-  - PLAN
-  - IMPLEMENT
-  - VERIFY
-  - REVIEW
-  - READY_FOR_CONFIRMATION
-  - FIX
-  - DONE
-  - BLOCKED
-
-confirmation:
-  goal:
-    required: true
-    beforeImplementation: true
-  result:
-    required: true
-    beforeDone: true
+policy:
+  # P0 决策模型、Policy Snapshot 和 State Transition Guard 的正式契约。
+  decisionSchema: schemas/policy.yaml
+  snapshotSchema: schemas/policy-snapshot.yaml
+  # 每次运行解析策略时必须产生单调 Revision。
+  revisionRequired: true
+  # 执行前必须校验 Snapshot Revision 与当前项目策略 Revision 一致。
+  requireRevisionMatchBeforeExecution: true
+  # Runtime 必须拒绝无效 Revision，且策略变更只能产生更高 Revision。
+  requirePositiveIntegerRevision: true
+  requireMonotonicRevision: true
+  # Policy Snapshot 在 Run 创建后视为只读；变更策略必须生成新的 Snapshot。
+  snapshotImmutable: true
 
 workflow:
+  # Loop 的固定生命周期状态集合。
+  states:
+    - INIT
+    - GOAL_REVIEW
+    - WAITING_FOR_GOAL_CONFIRMATION
+    - PLAN
+    - IMPLEMENT
+    - VERIFY
+    - REVIEW
+    - READY_FOR_CONFIRMATION
+    - FIX
+    - DONE
+    - BLOCKED
+    - PAUSED
   testFirst:
     enabled: true
     testFilesBeforeImplementation: true
@@ -64,8 +69,21 @@ workflow:
     requireExecutableRedWithoutImplementation: false
 
 completion:
+  finalApprovalGateEnabled: true
   requireAllAcceptanceCriteria: true
   agentClaimIsEvidence: false
   requireVerificationPass: true
   requireReviewPass: true
-  requireUserConfirmation: true
+
+persistence:
+  # Loop 产物统一由项目 `.loop/` 工作区承载。
+  workspace: .loop
+  # Runtime State 必须经过 Schema 校验后再持久化。
+  stateSchemaVersion: 1
+  # State 使用临时文件 + atomic rename，禁止直接覆盖现有事实状态。
+  atomicStateWrite: true
+  # 崩溃恢复只能恢复完整临时状态，无法解析则 BLOCKED。
+  crashRecovery: true
+  # Runtime History 只允许 append，不允许通过重写历史事件修正事实。
+  auditLog: runtime/history.jsonl
+  auditAppendOnly: true

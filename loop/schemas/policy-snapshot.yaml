@@ -1,0 +1,21 @@
+# Loop Policy Snapshot Schema。
+# 本文件记录一次执行决策实际使用的策略快照，用于防止 Policy TOCTOU。
+version: 1
+
+runId: <run-id>
+policyRevision: <revision>
+trust: <low|medium|high|full>
+
+permissions: {}
+effectivePolicy: {}
+
+# 策略解析完成时间。
+resolvedAt: <timestamp>
+
+rules:
+  # 每次 Capability 执行前都必须确认 Revision 未发生变化。
+  requireRevisionMatchBeforeExecution: true
+  # Revision 不一致时不得使用旧 Snapshot 继续执行。
+  revisionMismatchAction: BLOCKED
+  # Snapshot 是运行事实，不是项目配置的第二份来源。
+  readOnlyRuntimeFact: true

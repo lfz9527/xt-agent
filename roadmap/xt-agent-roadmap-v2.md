@@ -97,7 +97,7 @@ Codex
   ↓
 PLAN → IMPLEMENT → VERIFY 失败
   ↓
-.loop/state.yaml
+.loop/runtime/state.yaml
 
 DeepSeek Harness
   ↓
@@ -195,15 +195,19 @@ Agent 角色可以变化，但 State、Transition、Evidence、Acceptance Criter
 
 ```text
 .loop/
-├── state.yaml
-├── runs/
+├── runtime/
+│   ├── state.yaml
+│   └── history.jsonl
+├── plans/
+│   └── <run-id>.md
+├── specs/
 │   └── <run-id>/
-│       ├── events/
-│       ├── plan.md
-│       ├── tasks.md
-│       ├── evidence/
-│       └── result.md
-└── learnings/
+│       └── <spec-id>.pecs.md
+├── evidence/
+│   └── <run-id>/
+│       └── <evidence-id>.yaml
+└── reviews/
+    └── <run-id>.md
 ```
 
 目标包括 Resume、Replay、Run history、Failure analysis、Agent handoff 和 Cross-Agent continuity。

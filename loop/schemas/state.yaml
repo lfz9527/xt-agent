@@ -1,32 +1,72 @@
-version: 1
-
-# Project-local file: <project-root>/.loop/state.yaml
-# This file records the resumable state of the active Loop run.
+# Loop Runtime 状态 Schema。
+# 本文件描述一次运行的事实状态，不描述项目配置。
+# Trust、Permission 和项目 Policy 不属于 Runtime。
+version: 3
 
 run:
+  # 当前 Loop 运行的唯一 ID。
   id: <unique-run-id>
+  # 当前状态机状态。
   status: INIT
   iteration: 0
   fixAttempts: 0
   sameFailureCount: 0
 
 context:
-  projectRoot: <absolute-or-project-relative-root>
+  # 本次运行对应的项目根目录。
+  projectRoot: <project-root>
+  # INIT 时捕获的 Git 基线 Commit。
   baselineCommit: <git-commit-sha>
+  # INIT 时捕获的 Git 分支。
   baselineBranch: <git-branch>
+  # 当前 Run 预期的工作区 Fingerprint；发现未登记漂移时必须阻断。
+  expectedWorktreeFingerprint: <git-status-fingerprint>
 
 request:
   goal: <goal>
   acceptanceCriteria: []
 
+policy:
+  # 本次运行解析策略的 Revision；不保存项目策略本身。
+  policyRevision: <revision>
+  # 当前 Run 专属的不可变策略快照路径。
+  snapshot: .loop/runtime/runs/<run-id>/policy-snapshot.yaml
+
 plan:
-  artifact: <relative-path-under-.loop/plans>
+  artifact: .loop/plans/<run-id>.md
+
+specs:
+  artifacts: []
+
+audit:
+  # 所有 Run 共用项目级 append-only 审计日志。
+  history: .loop/runtime/history.jsonl
 
 active:
   task: null
   phase: INIT
 
-criteria: {}
+facts:
+  # Runtime 实际持久化的事实；State Guard 只能读取这些字段。
+  executionApprovalSatisfied: false
+  planArtifactExists: false
+  implementationCompleted: false
+  verificationPassed: false
+  verificationFailed: false
+  reviewPassed: false
+  reviewFailed: false
+  acceptancePassed: false
+  finalApprovalSatisfied: false
+  finalApprovalRejected: false
+  fixAttemptsWithinLimit: true
+  resumeRequested: false
+  resumeStateValid: false
+  # PAUSED 前的合法 Runtime Status；Resume 必须从持久化事实恢复，不能猜测。
+  pausedFromStatus: null
+  pauseExpired: false
+
+criteria:
+  items: []
 
 verification:
   status: pending
@@ -35,38 +75,89 @@ verification:
 review:
   status: pending
 
+approval:
+  history: []
+
+git:
+  # Runtime State 中持久化 Run 的 Git 基线与当前预期状态。
+  baseline: <git-baseline>
+  expectedWorktreeFingerprint: <git-status-fingerprint>
+  mutationJournal: .loop/runtime/runs/<run-id>/mutation-journal.jsonl
+
 updatedAt: <timestamp>
 
-# State machine
-# INIT -> GOAL_REVIEW -> WAITING_FOR_GOAL_CONFIRMATION -> PLAN -> IMPLEMENT
-# IMPLEMENT -> VERIFY -> REVIEW -> READY_FOR_CONFIRMATION -> DONE
-# VERIFY -> FIX when verification fails
-# REVIEW -> FIX when review fails
-# READY_FOR_CONFIRMATION -> FIX when the user rejects the result
-# FIX -> IMPLEMENT
-# Any active state -> BLOCKED when execution cannot safely continue.
-# No state transition may skip the required confirmation gates.
-
 stateRules:
+  requireTransitionGuards: true
   INIT:
     allowedNext: [GOAL_REVIEW, BLOCKED]
   GOAL_REVIEW:
     allowedNext: [WAITING_FOR_GOAL_CONFIRMATION, BLOCKED]
   WAITING_FOR_GOAL_CONFIRMATION:
-    allowedNext: [PLAN, BLOCKED]
+    allowedNext: [PLAN, BLOCKED, PAUSED]
+    guards:
+      PLAN:
+        - executionApprovalSatisfied == true
+        - policy.policyRevision == currentPolicyRevision
   PLAN:
-    allowedNext: [IMPLEMENT, BLOCKED]
+    allowedNext: [IMPLEMENT, BLOCKED, PAUSED]
+    guards:
+      IMPLEMENT:
+        - planArtifactExists == true
   IMPLEMENT:
-    allowedNext: [VERIFY, BLOCKED]
+    allowedNext: [VERIFY, BLOCKED, PAUSED]
+    guards:
+      VERIFY:
+        - implementationCompleted == true
   VERIFY:
-    allowedNext: [REVIEW, FIX, BLOCKED]
+    allowedNext: [REVIEW, FIX, BLOCKED, PAUSED]
+    guards:
+      REVIEW:
+        - verificationPassed == true
+      FIX:
+        - verificationFailed == true
   REVIEW:
-    allowedNext: [READY_FOR_CONFIRMATION, FIX, BLOCKED]
+    allowedNext: [READY_FOR_CONFIRMATION, FIX, BLOCKED, PAUSED]
+    guards:
+      READY_FOR_CONFIRMATION:
+        - reviewPassed == true
+      FIX:
+        - reviewFailed == true
   READY_FOR_CONFIRMATION:
-    allowedNext: [DONE, FIX, BLOCKED]
+    allowedNext: [DONE, FIX, BLOCKED, PAUSED]
+    guards:
+      DONE:
+        - acceptancePassed == true
+        - verificationPassed == true
+        - reviewPassed == true
+        - finalApprovalSatisfied == true
+      FIX:
+        - finalApprovalRejected == true
   FIX:
-    allowedNext: [IMPLEMENT, BLOCKED]
+    allowedNext: [IMPLEMENT, BLOCKED, PAUSED]
+    guards:
+      IMPLEMENT:
+        - fixAttemptsWithinLimit == true
+  PAUSED:
+    allowedNext: [WAITING_FOR_GOAL_CONFIRMATION, PLAN, IMPLEMENT, VERIFY, REVIEW, READY_FOR_CONFIRMATION, FIX, BLOCKED]
+    guards:
+      WAITING_FOR_GOAL_CONFIRMATION: [- resumeRequested == true, - resumeStateValid == true]
+      PLAN: [- resumeRequested == true, - resumeStateValid == true]
+      IMPLEMENT: [- resumeRequested == true, - resumeStateValid == true]
+      VERIFY: [- resumeRequested == true, - resumeStateValid == true]
+      REVIEW: [- resumeRequested == true, - resumeStateValid == true]
+      READY_FOR_CONFIRMATION: [- resumeRequested == true, - resumeStateValid == true]
+      FIX: [- resumeRequested == true, - resumeStateValid == true]
+      BLOCKED: [- pauseExpired == true]
   DONE:
     allowedNext: []
   BLOCKED:
     allowedNext: []
+
+paused:
+  terminal: false
+  resumeInPlace: true
+  reasons: [approval_required, external_dependency, user_requested_pause]
+
+blocked:
+  terminal: true
+  resumeInPlace: false

@@ -1,0 +1,146 @@
+import { describe, expect, it, vi } from 'vitest';
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { LoopRuntimeKernel, type LoopRuntimeState } from './kernel';
+import { RuntimeResourceLock } from './lock';
+import type { RuntimeFacts } from './enforcement';
+import { captureGitBaseline } from './git-consistency';
+
+const snapshot = { runId: 'run-1', policyRevision: 3, trust: 'high', permissions: {}, effectivePolicy: {}, resolvedAt: new Date(0).toISOString() };
+const facts: RuntimeFacts = {
+  executionApprovalSatisfied: false, planArtifactExists: false, implementationCompleted: false,
+  verificationPassed: false, verificationFailed: false, reviewPassed: false, reviewFailed: false,
+  acceptancePassed: false, finalApprovalSatisfied: false, finalApprovalRejected: false,
+  fixAttempts: 0, fixAttemptsWithinLimit: true, resumeRequested: false, resumeStateValid: false, pauseExpired: false,
+};
+
+function fixture() {
+  const state: LoopRuntimeState = { runId: 'run-1', status: 'IMPLEMENT', policyRevision: 3, snapshot, facts: { ...facts } };
+  const store = { read: vi.fn(() => state), write: vi.fn((next: LoopRuntimeState) => Object.assign(state, next)) };
+  const policy = { currentRevision: vi.fn(() => 3) };
+  const lock = new RuntimeResourceLock('/tmp/loop-kernel-test');
+  return { state, store, policy, kernel: new LoopRuntimeKernel(store, policy, undefined, undefined, lock) };
+}
+
+describe('LoopRuntimeKernel', () => {
+  it('executes only after the enforcement boundary', async () => {
+    const { kernel } = fixture();
+    const execute = vi.fn(async () => 'ok');
+    await expect(kernel.executeCapability({ capability: 'filesystem.read', capabilityDecision: 'allow', dangerous: false }, { execute })).resolves.toBe('ok');
+    expect(execute).toHaveBeenCalledOnce();
+  });
+  it('requires an approval provider before executing confirm capabilities', async () => {
+    const { kernel } = fixture();
+    const execute = vi.fn(async () => 'must-not-run');
+    await expect(kernel.executeCapability({ capability: 'git.push', capabilityDecision: 'confirm' }, { execute })).rejects.toThrow('approval provider');
+    expect(execute).not.toHaveBeenCalled();
+  });
+  it('rechecks policy revision after approval', async () => {
+    const { store, policy } = fixture();
+    const approval = { request: vi.fn(async () => 'approved' as const) };
+    const kernel = new LoopRuntimeKernel(store, policy, approval);
+    policy.currentRevision.mockReturnValueOnce(3).mockReturnValueOnce(4);
+    const execute = vi.fn(async () => 'must-not-run');
+    await expect(kernel.executeCapability({ capability: 'git.push', capabilityDecision: 'confirm' }, { execute })).rejects.toThrow('LOOP_BLOCKED');
+    expect(execute).not.toHaveBeenCalled();
+  });
+  it('prevents guarded state transitions from bypassing the kernel', () => {
+    const { kernel, store } = fixture();
+    expect(() => kernel.transition('VERIFY')).toThrow('LOOP_BLOCKED');
+    expect(store.write).not.toHaveBeenCalled();
+  });
+  it('writes state only after runtime facts satisfy the guard', () => {
+    const { kernel, store, state } = fixture();
+    state.facts.implementationCompleted = true;
+    kernel.transition('VERIFY');
+    expect(store.write).toHaveBeenCalledOnce();
+    expect(store.read().status).toBe('VERIFY');
+  });
+  it('blocks state transitions when the policy revision becomes stale', () => {
+    const { kernel, policy, store } = fixture();
+    policy.currentRevision.mockReturnValue(4);
+    expect(() => kernel.transition('VERIFY')).toThrow('LOOP_BLOCKED');
+    expect(store.write).not.toHaveBeenCalled();
+  });
+  it('never executes a capability after an explicit deny', async () => {
+    const { kernel } = fixture();
+    const execute = vi.fn(async () => 'must-not-run');
+    await expect(kernel.executeCapability({ capability: 'filesystem.write', capabilityDecision: 'deny', approvalDecision: 'approved' }, { execute })).rejects.toThrow('[LOOP_DENY]');
+    expect(execute).not.toHaveBeenCalled();
+  });
+  it('does not execute when approval is rejected and records both approval events', async () => {
+    const { store, policy } = fixture();
+    const approval = { request: vi.fn(async () => 'rejected' as const) };
+    const audit = { append: vi.fn() };
+    const rejectedKernel = new LoopRuntimeKernel(store, policy, approval, audit);
+    const execute = vi.fn(async () => 'must-not-run');
+    await expect(rejectedKernel.executeCapability({ capability: 'git.push', capabilityDecision: 'confirm' }, { execute })).rejects.toThrow('[LOOP_DENY]');
+    expect(execute).not.toHaveBeenCalled();
+    expect(audit.append).toHaveBeenCalledTimes(3);
+  });
+  it('releases the state lock when a guarded transition fails', () => {
+    const { kernel, state } = fixture();
+    state.facts.implementationCompleted = true;
+    expect(() => kernel.transition('VERIFY')).not.toThrow();
+    state.facts.verificationPassed = false;
+    expect(() => kernel.transition('REVIEW')).toThrow('LOOP_BLOCKED');
+    state.status = 'IMPLEMENT';
+    state.facts.implementationCompleted = true;
+    expect(() => kernel.transition('VERIFY')).not.toThrow();
+  });
+  it('does not mutate a resource without a git baseline and expected fingerprint', async () => {
+    const { kernel } = fixture();
+    const execute = vi.fn(async () => 'must-not-run');
+    await expect(kernel.mutateResource({ resource: 'src/**/*.ts', kind: 'mutable', allowedCapabilities: ['code.modify'] }, 'code.modify', 'src/app.ts', { execute })).rejects.toThrow('[LOOP_BLOCKED]');
+    expect(execute).not.toHaveBeenCalled();
+  });
+  it('requires a mutation journal before entering the resource mutation path', async () => {
+    const { state, store, policy } = fixture();
+    const baseline = captureGitBaseline(process.cwd());
+    state.gitBaseline = baseline;
+    state.expectedWorktreeFingerprint = baseline.worktreeFingerprint;
+    const kernel = new LoopRuntimeKernel(store, policy, undefined, undefined, new RuntimeResourceLock('/tmp/loop-kernel-test'));
+    const execute = vi.fn(async () => 'must-not-run');
+    await expect(kernel.mutateResource({ resource: 'src/**/*.ts', kind: 'mutable', allowedCapabilities: ['code.modify'] }, 'code.modify', 'src/app.ts', { execute })).rejects.toThrow('mutation journal is required');
+    expect(execute).not.toHaveBeenCalled();
+  });
+  it('rejects a resource mutation by policy before checking mutation preconditions or acquiring the lock', async () => {
+    const { state, policy } = fixture();
+    const baseline = captureGitBaseline(process.cwd());
+    state.gitBaseline = baseline;
+    state.expectedWorktreeFingerprint = baseline.worktreeFingerprint;
+    const journal = { append: vi.fn() };
+    const lock = new RuntimeResourceLock('/tmp/loop-kernel-test');
+    const { store } = fixture();
+    const lockedKernel = new LoopRuntimeKernel(store, policy, undefined, undefined, lock, journal);
+    const execute = vi.fn(async () => 'must-not-run');
+    await expect(lockedKernel.mutateResource({ resource: '.git/**', kind: 'readonly', allowedCapabilities: [] }, 'code.modify', '.git/config', { execute })).rejects.toThrow('[LOOP_DENY]');
+    expect(execute).not.toHaveBeenCalled();
+    expect(journal.append).not.toHaveBeenCalled();
+  });
+  it('journals a failed resource mutation and does not write runtime state', async () => {
+    // 使用独立的临时 Git 仓库，避免并行测试产生的工作区文件变化污染本测试的 baseline。
+    const gitCwd = mkdtempSync(join(tmpdir(), 'loop-kernel-git-'));
+    try {
+      execFileSync('git', ['init'], { cwd: gitCwd, stdio: 'ignore' });
+      execFileSync('git', ['config', 'user.email', 'loop-test@example.com'], { cwd: gitCwd, stdio: 'ignore' });
+      execFileSync('git', ['config', 'user.name', 'Loop Test'], { cwd: gitCwd, stdio: 'ignore' });
+      execFileSync('git', ['commit', '--allow-empty', '-m', 'test baseline'], { cwd: gitCwd, stdio: 'ignore' });
+      const { store, state, policy } = fixture();
+      const baseline = captureGitBaseline(gitCwd);
+      state.gitBaseline = baseline;
+      state.expectedWorktreeFingerprint = baseline.worktreeFingerprint;
+      const journal = { append: vi.fn() };
+      const lock = new RuntimeResourceLock('/tmp/loop-kernel-test');
+      const kernel = new LoopRuntimeKernel(store, policy, undefined, undefined, lock, journal, gitCwd);
+      const execute = vi.fn(async () => { throw new Error('mutation failed'); });
+      await expect(kernel.mutateResource({ resource: 'src/**/*.ts', kind: 'mutable', allowedCapabilities: ['code.modify'] }, 'code.modify', 'src/app.ts', { execute })).rejects.toThrow('mutation failed');
+      expect(store.write).not.toHaveBeenCalled();
+      expect(journal.append).toHaveBeenCalledWith(expect.objectContaining({ result: 'failed', resource: 'src/app.ts', capability: 'code.modify' }));
+    } finally {
+      rmSync(gitCwd, { recursive: true, force: true });
+    }
+  });
+});

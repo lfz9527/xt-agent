@@ -1,39 +1,23 @@
+# Loop 引擎默认策略。
+# 本文件只提供没有被项目 `.loop` 明确覆盖时使用的通用策略。
 version: 1
 
+approval:
+  # Goal Gate 的默认审批行为由项目 Trust 和 Permission Resolution 决定。
+  beforeExecution: inherit
+  # Final Gate 的默认审批行为由项目 Trust 和 Permission Resolution 决定。
+  beforeFinalize: inherit
+
+safety:
+  # 用户明确取消后必须停止当前运行。
+  cancellationStopsExecution: true
+  # 无法安全解析权限或状态时必须阻断。
+  invalidPolicyBlocks: true
+  # 显式 deny 永远优先。
+  denyAlwaysWins: true
+
 completion:
-  requiredEvidence:
-    - passed
-  rules:
-    - all_required_acceptance_criteria_must_pass
-    - agent_claim_cannot_complete_task
-    - verification_must_pass
-    - review_must_pass
-    - user_confirmation_must_complete_task
-
-evidence:
-  confidence:
-    agent_claim: low
-    review: medium
-    static: high
-    command: high
-    test: high
-    runtime: high
-
-confirmation:
-  goal:
-    required: true
-    blocksImplementation: true
-  result:
-    required: true
-    blocksDone: true
-
-failure:
-  maxSameFailure: 2
-  maxFixAttempts: 5
-
-security:
-  allowAutomaticCommit: false
-
-scope:
-  businessAgnostic: true
-  taskDefinitionsOutsideLoop: true
+  # 只有满足验收标准、Verification、Review 和适用 Approval 才能完成。
+  requireAllGates: true
+  # Agent 自己的完成声明不能作为 Evidence。
+  agentClaimIsEvidence: false
