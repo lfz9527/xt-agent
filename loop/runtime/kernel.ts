@@ -129,28 +129,62 @@ export class LoopRuntimeKernel {
     }
   }
 
-  /** 状态只能通过 Kernel 转移，禁止调用方直接写入 status。 */
+  /**
+   * 状态转移是 read -> validate -> write 的临界区。
+   * 必须先获取当前 Run 的 State Lock，再重新读取最新状态，防止两个 Run/进程
+   * 同时基于旧 State 通过 Guard 并覆盖彼此的更新。
+   */
   transition(to: string, guards: Record<string, boolean>): void {
-    const state = this.stateStore.read();
-    const currentRevision = this.policy.currentRevision();
-    if (state.policyRevision !== currentRevision) {
-      this.blocked(state, 'policy revision mismatch');
-      throw new Error('[LOOP_BLOCKED] policy revision mismatch');
+    if (!this.resourceLock) {
+      throw new Error('[LOOP_BLOCKED] state lock is required for transition');
     }
-    const context: TransitionGuardContext = { from: state.status, to, guards: { ...guards, policyRevisionMatch: true } };
-    if (!enforceTransition(context)) {
-      this.blocked(state, `transition ${state.status} -> ${to} failed its guards`);
-      throw new Error(`[LOOP_BLOCKED] transition ${state.status} -> ${to} failed its guards`);
+
+    // runId 必须从最新持久化 State 获取；获取锁后再次读取，避免 TOCTOU。
+    const initialState = this.stateStore.read();
+    const lockResource = this.stateLockResource(initialState.runId);
+    this.resourceLock.acquire(lockResource, initialState.runId);
+
+    try {
+      this.resourceLock.assertOwned(lockResource, initialState.runId);
+      const state = this.stateStore.read();
+      if (state.runId !== initialState.runId) {
+        this.blocked(state, 'runtime run identity changed while acquiring state lock');
+        throw new Error('[LOOP_BLOCKED] runtime run identity changed while acquiring state lock');
+      }
+
+      const currentRevision = this.policy.currentRevision();
+      if (state.policyRevision !== currentRevision) {
+        this.blocked(state, 'policy revision mismatch');
+        throw new Error('[LOOP_BLOCKED] policy revision mismatch');
+      }
+
+      const context: TransitionGuardContext = {
+        from: state.status,
+        to,
+        guards: { ...guards, policyRevisionMatch: true },
+      };
+      if (!enforceTransition(context)) {
+        this.blocked(state, `transition ${state.status} -> ${to} failed its guards`);
+        throw new Error(`[LOOP_BLOCKED] transition ${state.status} -> ${to} failed its guards`);
+      }
+
+      // write 仍由 FileStateStore 以 temp + rename 原子落盘。
+      this.stateStore.write({ ...state, status: to });
+      this.audit?.append({
+        eventId: createRuntimeEventId('transition'),
+        runId: state.runId,
+        type: 'STATE_TRANSITION',
+        at: new Date().toISOString(),
+        policyRevision: state.policyRevision,
+        payload: { from: state.status, to },
+      });
+    } finally {
+      this.resourceLock.release(lockResource, initialState.runId);
     }
-    this.stateStore.write({ ...state, status: to });
-    this.audit?.append({
-      eventId: createRuntimeEventId('transition'),
-      runId: state.runId,
-      type: 'STATE_TRANSITION',
-      at: new Date().toISOString(),
-      policyRevision: state.policyRevision,
-      payload: { from: state.status, to },
-    });
+  }
+
+  private stateLockResource(runId: string): string {
+    return `runtime-state/${runId}`;
   }
 
   private enforce(context: EnforcementContext): EnforcementResult {
