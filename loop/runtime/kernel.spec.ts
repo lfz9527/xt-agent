@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { LoopRuntimeKernel, type LoopRuntimeState } from './kernel';
 import { RuntimeResourceLock } from './lock';
 import type { RuntimeFacts } from './enforcement';
+import { captureGitBaseline } from './git-consistency';
 
 const snapshot = { runId: 'run-1', policyRevision: 3, trust: 'high', permissions: {}, effectivePolicy: {}, resolvedAt: new Date(0).toISOString() };
 const facts: RuntimeFacts = {
@@ -68,10 +69,10 @@ describe('LoopRuntimeKernel', () => {
   });
 
   it('does not execute when approval is rejected and records both approval events', async () => {
-    const { kernel } = fixture();
+    const { store, policy } = fixture();
     const approval = { request: vi.fn(async () => 'rejected' as const) };
     const audit = { append: vi.fn() };
-    const rejectedKernel = new LoopRuntimeKernel(fixture().store, fixture().policy, approval, audit);
+    const rejectedKernel = new LoopRuntimeKernel(store, policy, approval, audit);
     const execute = vi.fn(async () => 'must-not-run');
     await expect(rejectedKernel.executeCapability({ capability: 'git.push', capabilityDecision: 'confirm' }, { execute })).rejects.toThrow('[LOOP_DENY]');
     expect(execute).not.toHaveBeenCalled();
@@ -93,10 +94,11 @@ describe('LoopRuntimeKernel', () => {
   });
 
   it('requires a mutation journal before entering the resource mutation path', async () => {
-    const { state, policy } = fixture();
-    state.gitBaseline = { commit: 'HEAD', branch: 'loop/permission-system', worktreeFingerprint: '' };
-    state.expectedWorktreeFingerprint = '';
-    const kernel = new LoopRuntimeKernel(fixture().store, policy, undefined, undefined, new RuntimeResourceLock('/tmp/loop-kernel-test'));
+    const { state, store, policy } = fixture();
+    const baseline = captureGitBaseline(process.cwd());
+    state.gitBaseline = baseline;
+    state.expectedWorktreeFingerprint = baseline.worktreeFingerprint;
+    const kernel = new LoopRuntimeKernel(store, policy, undefined, undefined, new RuntimeResourceLock('/tmp/loop-kernel-test'));
     const execute = vi.fn(async () => 'must-not-run');
     await expect(kernel.mutateResource({ type: 'mutable', pattern: 'src/**/*.ts', capability: 'code.modify' }, 'code.modify', 'src/app.ts', { execute })).rejects.toThrow('mutation journal is required');
     expect(execute).not.toHaveBeenCalled();
@@ -104,8 +106,9 @@ describe('LoopRuntimeKernel', () => {
 
   it('rejects a resource mutation before acquiring the lock when policy denies it', async () => {
     const { kernel, state } = fixture();
-    state.gitBaseline = { commit: 'HEAD', branch: 'loop/permission-system', worktreeFingerprint: '' };
-    state.expectedWorktreeFingerprint = '';
+    const baseline = captureGitBaseline(process.cwd());
+    state.gitBaseline = baseline;
+    state.expectedWorktreeFingerprint = baseline.worktreeFingerprint;
     const journal = { append: vi.fn() };
     const lock = new RuntimeResourceLock('/tmp/loop-kernel-test');
     const lockedKernel = new LoopRuntimeKernel(fixture().store, fixture().policy, undefined, undefined, lock, journal);
@@ -115,10 +118,11 @@ describe('LoopRuntimeKernel', () => {
     expect(journal.append).not.toHaveBeenCalled();
   });
 
-  it('does not write runtime state when resource mutation execution fails', async () => {
+  it('journals a failed resource mutation and does not write runtime state', async () => {
     const { store, state, policy } = fixture();
-    state.gitBaseline = { commit: 'HEAD', branch: 'loop/permission-system', worktreeFingerprint: '' };
-    state.expectedWorktreeFingerprint = '';
+    const baseline = captureGitBaseline(process.cwd());
+    state.gitBaseline = baseline;
+    state.expectedWorktreeFingerprint = baseline.worktreeFingerprint;
     const journal = { append: vi.fn() };
     const lock = new RuntimeResourceLock('/tmp/loop-kernel-test');
     const kernel = new LoopRuntimeKernel(store, policy, undefined, undefined, lock, journal);
