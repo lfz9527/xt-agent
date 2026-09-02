@@ -76,5 +76,14 @@ completion:
   requireReviewPass: true
 
 persistence:
-  # Loop 产物统一由项目 `.loop/` 工作区承载；具体目录由 Runtime Artifact Contract 定义。
+  # Loop 产物统一由项目 `.loop/` 工作区承载。
   workspace: .loop
+  # Runtime State 必须经过 Schema 校验后再持久化。
+  stateSchemaVersion: 1
+  # State 使用临时文件 + atomic rename，禁止直接覆盖现有事实状态。
+  atomicStateWrite: true
+  # 崩溃恢复只能恢复完整临时状态，无法解析则 BLOCKED。
+  crashRecovery: true
+  # Runtime History 只允许 append，不允许通过重写历史事件修正事实。
+  auditLog: runtime/history.jsonl
+  auditAppendOnly: true
