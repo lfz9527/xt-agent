@@ -4,6 +4,7 @@ import { canResume } from './enforcement';
 import type { PolicySnapshot, RuntimeFacts } from './enforcement';
 import type { GitBaseline } from './git-consistency';
 import type { LoopRuntimeState, StateStore } from './kernel';
+import type { RunArtifactStore } from './artifact-store';
 
 export interface RunRuntimePolicySource {
   currentRevision(): number;
@@ -14,6 +15,7 @@ export interface RunRuntimeOptions {
   gitCwd?: string;
   createRunId?: () => string;
   initialFacts?: Partial<RuntimeFacts>;
+  artifactStore?: RunArtifactStore;
 }
 
 const defaultFacts = (): RuntimeFacts => ({
@@ -72,6 +74,16 @@ export class RunRuntime {
     const state = this.stateStoreFactory(runId).read();
     this.assertPolicy(state);
     return state;
+  }
+
+  /** 将 Plan 写入当前 Run 的 Artifact Workspace，并同步 State Guard 所需事实。 */
+  writePlan(runId: string, content: string): LoopRuntimeState {
+    if (!this.options.artifactStore) throw new Error('[LOOP_BLOCKED] artifact store is required');
+    const state = this.loadRun(runId);
+    this.options.artifactStore.writePlan(runId, content);
+    const next = { ...state, facts: { ...state.facts, planArtifactExists: true } };
+    this.stateStoreFactory(runId).write(next);
+    return next;
   }
 
   pause(runId: string): LoopRuntimeState {
