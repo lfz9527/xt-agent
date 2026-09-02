@@ -1,13 +1,17 @@
-import { enforceCapability, enforceTransition, type EnforcementContext, type EnforcementResult, type PolicySnapshot, type TransitionGuardContext } from './enforcement';
+import { enforceCapability, enforceTransition, type EnforcementContext, type EnforcementResult, type PolicySnapshot, type RuntimeFacts, type TransitionGuardContext } from './enforcement';
 import { evaluateResourceMutation, type RuntimeResourcePolicy } from './resource-policy';
-import { createRuntimeEventId, type RuntimeAuditLog } from './persistence';
+import { createRuntimeEventId, type MutationJournal, type RuntimeAuditLog } from './persistence';
 import { RuntimeResourceLock } from './lock';
+import { verifyGitBaseline, type GitBaseline } from './git-consistency';
 
 export interface LoopRuntimeState {
   runId: string;
   status: string;
   policyRevision: number;
   snapshot: PolicySnapshot;
+  facts: RuntimeFacts;
+  gitBaseline?: GitBaseline;
+  expectedWorktreeFingerprint?: string;
 }
 
 export interface StateStore {
@@ -15,21 +19,12 @@ export interface StateStore {
   write(next: LoopRuntimeState): void;
 }
 
-export interface PolicyRevisionSource {
-  currentRevision(): number;
-}
-
-export interface CapabilityExecutor<T> {
-  execute(): Promise<T>;
-}
-
+export interface PolicyRevisionSource { currentRevision(): number; }
+export interface CapabilityExecutor<T> { execute(): Promise<T>; }
 export interface ApprovalProvider {
   request(input: { runId: string; capability: string; reason: string }): Promise<'approved' | 'rejected'>;
 }
-
-export interface ResourceMutationExecutor<T> {
-  execute(): Promise<T>;
-}
+export interface ResourceMutationExecutor<T> { execute(): Promise<T>; }
 
 export class LoopRuntimeKernel {
   constructor(
@@ -38,58 +33,28 @@ export class LoopRuntimeKernel {
     private readonly approval?: ApprovalProvider,
     private readonly audit?: RuntimeAuditLog,
     private readonly resourceLock?: RuntimeResourceLock,
+    private readonly mutationJournal?: MutationJournal,
   ) {}
 
   /** 所有 Capability 必须从这里进入实际 Executor；Executor 不负责安全决策。 */
   async executeCapability<T>(
-    input: Omit<EnforcementContext, 'runId' | 'policyRevision' | 'currentPolicyRevision' | 'snapshot' | 'approvalDecision'> & {
-      approvalDecision?: EnforcementContext['approvalDecision'];
-    },
+    input: Omit<EnforcementContext, 'runId' | 'policyRevision' | 'currentPolicyRevision' | 'snapshot' | 'approvalDecision'> & { approvalDecision?: EnforcementContext['approvalDecision'] },
     executor: CapabilityExecutor<T>,
   ): Promise<T> {
     const state = this.stateStore.read();
     const currentRevision = this.policy.currentRevision();
     let approvalDecision = input.approvalDecision ?? 'required';
-
-    let result = this.enforce({
-      ...input,
-      runId: state.runId,
-      policyRevision: state.policyRevision,
-      currentPolicyRevision: currentRevision,
-      snapshot: state.snapshot,
-      approvalDecision,
-    });
+    let result = this.enforce({ ...input, runId: state.runId, policyRevision: state.policyRevision, currentPolicyRevision: currentRevision, snapshot: state.snapshot, approvalDecision });
 
     if (result.status === 'CONFIRM') {
       if (!this.approval) {
         this.blocked(state, 'approval provider is required for a confirm decision');
         throw new Error('approval provider is required for a confirm decision');
       }
-      this.audit?.append({
-        eventId: createRuntimeEventId('approval'),
-        runId: state.runId,
-        type: 'APPROVAL_REQUESTED',
-        at: new Date().toISOString(),
-        policyRevision: state.policyRevision,
-        payload: { capability: input.capability, reason: result.reason },
-      });
+      this.audit?.append({ eventId: createRuntimeEventId('approval'), runId: state.runId, type: 'APPROVAL_REQUESTED', at: new Date().toISOString(), policyRevision: state.policyRevision, payload: { capability: input.capability, reason: result.reason } });
       approvalDecision = await this.approval.request({ runId: state.runId, capability: input.capability, reason: result.reason });
-      this.audit?.append({
-        eventId: createRuntimeEventId('approval'),
-        runId: state.runId,
-        type: 'APPROVAL_RESOLVED',
-        at: new Date().toISOString(),
-        policyRevision: state.policyRevision,
-        payload: { capability: input.capability, decision: approvalDecision },
-      });
-      result = this.enforce({
-        ...input,
-        runId: state.runId,
-        policyRevision: state.policyRevision,
-        currentPolicyRevision: this.policy.currentRevision(),
-        snapshot: state.snapshot,
-        approvalDecision,
-      });
+      this.audit?.append({ eventId: createRuntimeEventId('approval'), runId: state.runId, type: 'APPROVAL_RESOLVED', at: new Date().toISOString(), policyRevision: state.policyRevision, payload: { capability: input.capability, decision: approvalDecision } });
+      result = this.enforce({ ...input, runId: state.runId, policyRevision: state.policyRevision, currentPolicyRevision: this.policy.currentRevision(), snapshot: state.snapshot, approvalDecision });
     }
 
     if (!result.allowed) {
@@ -100,105 +65,102 @@ export class LoopRuntimeKernel {
   }
 
   /**
-   * 对资源执行实际修改。
-   * Resource Policy 决定“能不能改”，Resource Lock 决定“现在谁可以改”。
+   * 唯一的资源 mutation 入口：Policy → Capability → Git Consistency → Lock → Mutation → Journal。
+   * 没有 Git baseline 或 Journal 时默认 BLOCKED，防止“能执行但无法证明归属”的修改。
    */
   async mutateResource<T>(
     resourcePolicy: RuntimeResourcePolicy,
     capability: string,
+    path: string,
     executor: ResourceMutationExecutor<T>,
   ): Promise<T> {
     const state = this.stateStore.read();
-    const decision = evaluateResourceMutation({ policy: resourcePolicy, capability });
+    if (!state.gitBaseline || !state.expectedWorktreeFingerprint) {
+      this.blocked(state, 'git baseline and expected worktree state are required for mutation');
+      throw new Error('[LOOP_BLOCKED] git baseline and expected worktree state are required for mutation');
+    }
+    if (!this.mutationJournal) {
+      this.blocked(state, 'mutation journal is required for mutation');
+      throw new Error('[LOOP_BLOCKED] mutation journal is required for mutation');
+    }
+
+    const decision = evaluateResourceMutation({ policy: resourcePolicy, capability, path });
     if (!decision.allowed) {
       this.blocked(state, decision.reason);
       throw new Error(`[LOOP_DENY] ${decision.reason}`);
     }
 
+    const before = verifyGitBaseline('.', state.gitBaseline, state.expectedWorktreeFingerprint);
+    if (!before.consistent) {
+      this.blocked(state, before.reason);
+      throw new Error(`[LOOP_BLOCKED] ${before.reason}`);
+    }
     if (!this.resourceLock) {
-      this.blocked(state, `resource lock is required for mutation: ${resourcePolicy.resource}`);
+      this.blocked(state, `resource lock is required for mutation: ${path}`);
       throw new Error('[LOOP_BLOCKED] resource lock is required for mutation');
     }
 
-    this.resourceLock.acquire(resourcePolicy.resource, state.runId);
+    this.resourceLock.acquire(path, state.runId);
     try {
-      this.resourceLock.assertOwned(resourcePolicy.resource, state.runId);
-      return await executor.execute();
+      this.resourceLock.assertOwned(path, state.runId);
+      const result = await executor.execute();
+      const after = verifyGitBaseline('.', state.gitBaseline);
+      if (!after.consistent) {
+        this.blocked(state, after.reason);
+        throw new Error(`[LOOP_BLOCKED] ${after.reason}`);
+      }
+      this.mutationJournal.append({
+        mutationId: createRuntimeEventId('mutation'), runId: state.runId, resource: path, capability,
+        at: new Date().toISOString(), beforeWorktreeFingerprint: before.current.worktreeFingerprint,
+        afterWorktreeFingerprint: after.current.worktreeFingerprint, result: 'committed',
+      });
+      this.audit?.append({
+        eventId: createRuntimeEventId('mutation'), runId: state.runId, type: 'RESOURCE_MUTATION', at: new Date().toISOString(),
+        policyRevision: state.policyRevision, payload: { resource: path, capability, before: before.current.worktreeFingerprint, after: after.current.worktreeFingerprint },
+      });
+      this.stateStore.write({ ...state, expectedWorktreeFingerprint: after.current.worktreeFingerprint });
+      return result;
+    } catch (error) {
+      const current = verifyGitBaseline('.', state.gitBaseline).current;
+      this.mutationJournal.append({
+        mutationId: createRuntimeEventId('mutation'), runId: state.runId, resource: path, capability,
+        at: new Date().toISOString(), beforeWorktreeFingerprint: before.current.worktreeFingerprint,
+        afterWorktreeFingerprint: current.worktreeFingerprint, result: 'failed',
+      });
+      throw error;
     } finally {
-      this.resourceLock.release(resourcePolicy.resource, state.runId);
+      this.resourceLock.release(path, state.runId);
     }
   }
 
-  /**
-   * 状态转移是 read -> validate -> write 的临界区。
-   * 必须先获取当前 Run 的 State Lock，再重新读取最新状态，防止两个 Run/进程
-   * 同时基于旧 State 通过 Guard 并覆盖彼此的更新。
-   */
-  transition(to: string, guards: Record<string, boolean>): void {
-    if (!this.resourceLock) {
-      throw new Error('[LOOP_BLOCKED] state lock is required for transition');
-    }
-
-    // runId 必须从最新持久化 State 获取；获取锁后再次读取，避免 TOCTOU。
+  transition(to: string): void {
+    if (!this.resourceLock) throw new Error('[LOOP_BLOCKED] state lock is required for transition');
     const initialState = this.stateStore.read();
     const lockResource = this.stateLockResource(initialState.runId);
     this.resourceLock.acquire(lockResource, initialState.runId);
-
     try {
       this.resourceLock.assertOwned(lockResource, initialState.runId);
       const state = this.stateStore.read();
-      if (state.runId !== initialState.runId) {
-        this.blocked(state, 'runtime run identity changed while acquiring state lock');
-        throw new Error('[LOOP_BLOCKED] runtime run identity changed while acquiring state lock');
-      }
-
-      const currentRevision = this.policy.currentRevision();
-      if (state.policyRevision !== currentRevision) {
+      if (state.runId !== initialState.runId) throw new Error('[LOOP_BLOCKED] runtime run identity changed while acquiring state lock');
+      if (state.policyRevision !== this.policy.currentRevision()) {
         this.blocked(state, 'policy revision mismatch');
         throw new Error('[LOOP_BLOCKED] policy revision mismatch');
       }
-
-      const context: TransitionGuardContext = {
-        from: state.status,
-        to,
-        guards: { ...guards, policyRevisionMatch: true },
-      };
+      const context: TransitionGuardContext = { from: state.status, to, facts: state.facts, guards: { policyRevisionMatch: true } };
       if (!enforceTransition(context)) {
         this.blocked(state, `transition ${state.status} -> ${to} failed its guards`);
         throw new Error(`[LOOP_BLOCKED] transition ${state.status} -> ${to} failed its guards`);
       }
-
-      // write 仍由 FileStateStore 以 temp + rename 原子落盘。
       this.stateStore.write({ ...state, status: to });
-      this.audit?.append({
-        eventId: createRuntimeEventId('transition'),
-        runId: state.runId,
-        type: 'STATE_TRANSITION',
-        at: new Date().toISOString(),
-        policyRevision: state.policyRevision,
-        payload: { from: state.status, to },
-      });
+      this.audit?.append({ eventId: createRuntimeEventId('transition'), runId: state.runId, type: 'STATE_TRANSITION', at: new Date().toISOString(), policyRevision: state.policyRevision, payload: { from: state.status, to } });
     } finally {
       this.resourceLock.release(lockResource, initialState.runId);
     }
   }
 
-  private stateLockResource(runId: string): string {
-    return `runtime-state/${runId}`;
-  }
-
-  private enforce(context: EnforcementContext): EnforcementResult {
-    return enforceCapability(context);
-  }
-
+  private stateLockResource(runId: string): string { return `runtime-state/${runId}`; }
+  private enforce(context: EnforcementContext): EnforcementResult { return enforceCapability(context); }
   private blocked(state: LoopRuntimeState, reason: string): void {
-    this.audit?.append({
-      eventId: createRuntimeEventId('blocked'),
-      runId: state.runId,
-      type: 'BLOCKED',
-      at: new Date().toISOString(),
-      policyRevision: state.policyRevision,
-      payload: { status: state.status, reason },
-    });
+    this.audit?.append({ eventId: createRuntimeEventId('blocked'), runId: state.runId, type: 'BLOCKED', at: new Date().toISOString(), policyRevision: state.policyRevision, payload: { status: state.status, reason } });
   }
 }
