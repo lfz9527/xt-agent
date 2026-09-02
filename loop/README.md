@@ -2,6 +2,27 @@
 
 Loop 是通用的、有状态的 Agent 任务控制层。Agent 负责完成工作，Loop 负责生命周期、状态机、项目 Policy、Permission、Trust、Approval、安全边界、Resource Governance 和 Evidence。
 
+## P2-11 Run Event / Observer API
+
+P2-11 为外部 UI、CLI、Scheduler 和其他只读消费者提供统一的 Run Event 观察边界。
+
+```text
+Runtime Timeline
+       ↓
+Run Event Observer
+   ↙       ↓       ↘
+ UI       CLI    Scheduler
+```
+
+Observer 支持两类能力：
+
+- `list(runId)`：通过 Runtime Audit Replay 查询已经持久化的历史事件。
+- `subscribe(runId, observer)`：订阅当前 Runtime Timeline 中的新事件，并返回取消订阅函数。
+
+Observer 只读：不得直接读取/修改 `state.yaml`，不得调用 State Machine、Policy、Permission、Trust、Approval 或 Evidence 决策，也不拥有 Runtime State。所有事件仍由 Runtime Audit / Unified Audit Timeline 产生。
+
+当前观察范围与 Unified Audit Timeline 保持一致：`STAGE`、`CHECKPOINT`、`EVIDENCE`、`RESOURCE_MUTATION`、`STATE_TRANSITION`。Observer 不创建新的事实源，也不复制一套状态机。
+
 ## P2-10 Scheduler Adapter
 
 Scheduler 只是 Loop Runtime 的“时间入口”，不拥有 Runtime 生命周期。
@@ -44,7 +65,7 @@ Scheduler 不得创建或修改 `.loop/runtime`、实现 State Machine、Policy�
 └── reviews/<run-id>.md
 ```
 
-`.loop/runtime/history.jsonl` 是 Runtime Audit 的权威事实源；Scheduler 不直接触碰它。
+`.loop/runtime/history.jsonl` 是 Runtime Audit 的权威事实源；Scheduler 和 Observer 都不直接修改它。
 
 ## Runtime Adapter 总体边界
 
@@ -57,4 +78,8 @@ Skill Adapter          CLI Adapter          Scheduler Adapter
                          RunService
                              ↓
                          Loop Runtime
+                             ↑
+                      Event Observer
+                         ↗       ↖
+                       UI        CLI
 ```
