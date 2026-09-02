@@ -1,38 +1,40 @@
-# 项目级 Loop 配置文件；每个项目只需要一个 `.loop` 文件。
+# 项目级 Loop 配置。
+# 每个项目只需要根目录这一个 `.loop` 文件。
 version: 1
 
-# 项目对 Loop Agent 的默认信任等级。
-# 信任等级属于项目，不属于某一次 Loop 运行。
-trust: high
+# Trust 是项目属性，不属于任何一次 Loop Runtime。
+# low：所有 Trust-controlled Gate 默认需要用户确认。
+trust: low
 
-# 项目级权限策略；未声明的策略使用 Loop 默认策略。
+# 项目权限。
+# 未声明的权限继承 Loop 引擎默认配置。
 permissions:
   approval:
-    # 执行前审批策略；inherit 表示跟随项目 Trust Level。
+    # 跟随当前项目 Trust 的执行前审批策略。
     beforeExecution: inherit
-    # 完成前审批策略；inherit 表示跟随项目 Trust Level。
+    # 跟随当前项目 Trust 的完成前审批策略。
     beforeFinalize: inherit
 
   filesystem:
-    # 是否允许 Loop 读取项目文件。
+    # 允许读取项目文件。
     read: allow
-    # 是否允许 Loop 修改项目文件。
+    # 允许修改项目文件。
     write: allow
 
   shell:
-    # 是否允许 Loop 执行普通 Shell 命令。
+    # 允许执行普通 Shell 命令。
     execute: allow
     # 高风险 Shell 命令仍需独立确认。
     dangerous: confirm
 
   git:
-    # 是否允许 Loop 读取 Git 状态、历史和 Diff。
+    # 允许读取 Git 状态、历史和 Diff。
     read: allow
-    # 创建 Commit 仍需独立确认。
+    # 创建 Commit 需要独立确认。
     commit: confirm
-    # Push 仍需独立确认。
+    # Push 需要独立确认。
     push: confirm
 
   network:
-    # 外部网络请求仍需独立确认。
+    # 外部网络请求需要独立确认。
     request: confirm
