@@ -36,6 +36,7 @@ Loop 是通用的、有状态的 Agent 任务控制协议。Agent 负责工作�
 - `loop/schemas/`：State、Policy、Policy Snapshot、Evidence、Artifact 契约。
 - `loop/runtime/enforcement.ts`：Runtime Enforcement 原语。
 - `loop/runtime/kernel.ts`：Runtime Enforcement 集成边界；实际 Capability Executor 和 StateStore 必须通过 Kernel。
+- `loop/runtime/persistence.ts`：文件持久化边界；`state.yaml` 原子写入、Schema 校验、崩溃恢复，以及 `history.jsonl` append-only 审计。
 
 ```text
 .loop/config.yaml
@@ -51,8 +52,8 @@ Effective Policy
 Policy Snapshot + Revision
        ↓
 Runtime Kernel
-       ├── Capability Enforcement → Capability Executor
-       └── Transition Enforcement → StateStore
+       ├── Capability Enforcement → Approval → Capability Executor
+       └── Transition Enforcement → Atomic StateStore → Audit Log
 ```
 
 ## Trigger
@@ -83,8 +84,8 @@ Security / Dangerous Check
 Approval Decision
        ↓
 ALLOW → CapabilityExecutor.execute()
-CONFIRM → ApprovalProvider → 重新校验 Revision → Executor
-DENY / BLOCKED → 不调用 Executor
+CONFIRM → ApprovalProvider → 记录 Approval Event → 重新校验 Revision → Executor
+DENY / BLOCKED → 不调用 Executor + 记录 BLOCKED Event
 ```
 
 强制规则：
@@ -94,6 +95,7 @@ DENY / BLOCKED → 不调用 Executor
 - Revision mismatch 必须 `BLOCKED`。
 - `deny` 永远不能被 Approval、Trust 或 Agent 意图覆盖。
 - `confirm` 不能直接执行；只有 `approved` 或 `automatic` 才能继续。
+- Approval 请求与结果必须进入 append-only `history.jsonl`，并带唯一 Event ID、Run ID 和 Policy Revision。
 - Approval 完成后必须再次读取当前 Policy Revision，再进入 Executor。
 - 高风险 Capability 没有显式 `confirm` 安全路径时不得执行。
 - Capability Executor 不得自行绕过 Kernel 调用底层能力。
@@ -113,9 +115,9 @@ Allowed Transition
     ↓
 Transition Guard
     ↓
-Policy / Approval / Evidence / Acceptance
+Atomic StateStore.write()
     ↓
-StateStore.write()
+STATE_TRANSITION Audit Event
 ```
 
 P1.5 Runtime 至少强制：
@@ -131,6 +133,17 @@ P1.5 Runtime 至少强制：
 - `FIX → IMPLEMENT`：Fix 次数未超过限制。
 - `PAUSED` 只能通过合法 Resume Transition 恢复。
 - `BLOCKED` 不允许原地 Resume。
+
+### Persistent State / Crash Recovery
+
+- Runtime State 的唯一持久化事实是项目 `.loop/runtime/state.yaml`。
+- State 文件必须包含 `schemaVersion`；未知版本必须 `BLOCKED`，不能猜测兼容。
+- State 写入必须采用临时文件 + atomic rename，禁止直接覆盖生产 State。
+- 进程在 rename 前崩溃时，Runtime 可以恢复完整临时 State；不完整或无法解析的 State 必须 `BLOCKED`。
+- State 的 `runId`、`policyRevision` 与 Policy Snapshot 必须一致，否则 `BLOCKED`。
+- `.loop/runtime/history.jsonl` 是 append-only Runtime Audit Log；历史事件不得通过重写 State 伪造。
+- Approval、State Transition 和 BLOCKED 事实必须带唯一 Event ID、Run ID、时间和 Policy Revision。
+- `.loop/` 下的持久化文件不是 Agent 的第二套权限配置；Policy 真相仍只有项目 `.loop/config.yaml`。
 
 ### PAUSED / BLOCKED
 
@@ -176,9 +189,9 @@ VERIFY / REVIEW / READY_FOR_CONFIRMATION → FIX → IMPLEMENT
 
 ## INIT / Resume
 
-INIT：定位项目根目录 → 加载规则 → 读取 `.loop/config.yaml` → 创建 Runtime → 捕获 Git baseline → 解析 Policy → 生成 Snapshot / Revision。
+INIT：定位项目根目录 → 加载规则 → 读取 `.loop/config.yaml` → 创建 Runtime → 捕获 Git baseline → 解析 Policy → 生成 Snapshot / Revision → 原子持久化初始 State。
 
-Resume：读取持久化 State → 校验项目和 Git 上下文 → 重新解析当前 Policy → 比较 Revision → Revision mismatch 则 `BLOCKED` → 校验 run-id 对应的 Plan / Spec / Evidence / Review → 通过 Transition Guard 恢复。
+Resume：读取持久化 State → 必须先通过 Schema / Snapshot / Run ID 校验 → 校验项目和 Git 上下文 → 重新解析当前 Policy → 比较 Revision → Revision mismatch 则 `BLOCKED` → 校验 run-id 对应的 Plan / Spec / Evidence / Review → 通过 Transition Guard 恢复。
 
 不得依赖聊天历史猜测 Runtime 状态。
 
