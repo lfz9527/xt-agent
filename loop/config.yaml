@@ -1,187 +1,186 @@
-# Loop configuration schema version.
+# Loop 配置文件版本。
 version: 1
 
 loop:
-  # Maximum number of execution iterations allowed in a single Loop run.
+  # 单次 Loop 运行允许执行的最大迭代次数。
   maxIterations: 10
-  # Maximum number of FIX attempts allowed before the run becomes BLOCKED.
+  # 单次 Loop 运行允许执行的最大 FIX 修复次数，超过后进入 BLOCKED。
   maxFixAttempts: 5
-  # Maximum consecutive occurrences of the same failure before the run becomes BLOCKED.
+  # 同一失败连续出现的最大次数，超过后进入 BLOCKED。
   maxSameFailure: 2
 
 state:
-  # Whether Loop persists its runtime state to the project workspace.
+  # 是否启用 Loop 运行状态持久化。
   enabled: true
-  # Path to the project-local persisted Loop state file.
+  # 项目级 Loop 状态文件路径。
   path: .loop/state.yaml
-  # State fields that must exist for a persisted run to be considered valid.
+  # 持久化状态必须包含的字段。
   requiredFields:
-    # Unique identifier of the current Loop run.
+    # 当前 Loop 运行的唯一 ID。
     - run.id
-    # Current state-machine status.
+    # 当前状态机状态。
     - run.status
-    # Number of iterations already executed.
+    # 当前已经执行的迭代次数。
     - run.iteration
-    # Number of FIX attempts already consumed.
+    # 当前已经消耗的 FIX 次数。
     - run.fixAttempts
-    # Number of consecutive repeated failures.
+    # 当前连续重复失败的次数。
     - run.sameFailureCount
-    # Absolute or project-relative root of the current project.
+    # 当前项目根目录。
     - context.projectRoot
-    # Git commit used as the run baseline.
+    # Loop 启动时记录的 Git 基线 Commit。
     - context.baselineCommit
-    # Git branch recorded at run initialization.
+    # Loop 启动时记录的 Git 基线分支。
     - context.baselineBranch
-    # User-defined goal for the current run.
+    # 用户本次要求 Loop 完成的目标。
     - request.goal
-    # Acceptance criteria that define successful completion.
+    # 用于判断任务是否完成的验收标准。
     - request.acceptanceCriteria
-    # Currently active task or phase.
+    # 当前正在执行的任务阶段。
     - active.phase
-    # Current verification result status.
+    # 当前验证结果状态。
     - verification.status
-    # Current review result status.
+    # 当前 Review 结果状态。
     - review.status
-    # Persisted trust level used by the permission policy.
+    # 当前生效的用户信任等级。
     - permission.trust.level
 
-# User trust controls the default authorization policy for Loop.
-# LOW is the secure default; users may explicitly raise the trust level.
+# 用户信任等级决定 Loop 的默认授权策略。
+# LOW 是安全默认值，用户可以主动提高信任等级。
 trust:
-  # Current trust level applied to this Loop configuration.
+  # 当前生效的信任等级，可选 low、medium、high、full。
   level: low
   levels:
     low:
       approval:
-        # Whether execution may pass the pre-implementation approval gate automatically.
+        # LOW 信任下，执行前必须经过用户确认。
         beforeExecution: required
-        # Whether completion may pass the final approval gate automatically.
+        # LOW 信任下，完成前必须经过用户确认。
         beforeFinalize: required
     medium:
       approval:
-        # Medium trust allows Loop to start implementation without asking again.
+        # MEDIUM 信任下，执行前自动通过确认 Gate。
         beforeExecution: automatic
-        # Medium trust still requires the user to accept the final result.
+        # MEDIUM 信任下，完成前仍需要用户确认最终结果。
         beforeFinalize: required
     high:
       approval:
-        # High trust allows Loop to pass the pre-implementation approval gate automatically.
+        # HIGH 信任下，执行前自动通过确认 Gate。
         beforeExecution: automatic
-        # High trust allows Loop to pass the final approval gate automatically.
+        # HIGH 信任下，完成前自动通过确认 Gate。
         beforeFinalize: automatic
     full:
       approval:
-        # Full trust allows the pre-implementation approval gate to be automatic.
+        # FULL 信任下，执行前自动通过确认 Gate。
         beforeExecution: automatic
-        # Full trust allows the final approval gate to be automatic.
+        # FULL 信任下，完成前自动通过确认 Gate。
         beforeFinalize: automatic
 
 permissions:
   approval:
-    # Default policy for approval before implementation; trust levels may override this.
+    # 执行前默认的确认策略，可由 Trust Level 覆盖。
     beforeExecution: required
-    # Default policy for approval before entering DONE; trust levels may override this.
+    # 完成前默认的确认策略，可由 Trust Level 覆盖。
     beforeFinalize: required
   filesystem:
-    # Whether Loop may inspect project files without additional approval.
+    # 是否允许 Loop 直接读取项目文件。
     read: allow
-    # Whether Loop may modify project files without additional approval.
+    # 是否允许 Loop 直接修改项目文件。
     write: allow
   shell:
-    # Whether Loop may execute normal project shell commands.
+    # 是否允许 Loop 执行普通 Shell 命令。
     execute: allow
-    # Whether potentially destructive or otherwise high-risk shell commands require approval.
+    # 是否允许 Loop 执行高风险或破坏性 Shell 命令；confirm 表示需要用户确认。
     dangerous: confirm
   git:
-    # Whether Loop may inspect Git state and history without additional approval.
+    # 是否允许 Loop 直接读取 Git 状态、历史和 Diff。
     read: allow
-    # Whether Loop may create Git commits without additional approval.
+    # 是否允许 Loop 创建 Git Commit；confirm 表示需要用户确认。
     commit: confirm
-    # Whether Loop may push commits to a remote without additional approval.
+    # 是否允许 Loop 向远程仓库 Push；confirm 表示需要用户确认。
     push: confirm
   network:
-    # Whether external network requests require explicit user approval.
+    # 是否允许 Loop 发起外部网络请求；confirm 表示需要用户确认。
     request: confirm
 
-# Trust levels provide default approval behavior only.
-# They must never bypass independent high-risk or safety policies.
+# Trust Level 只能提供默认确认策略，不能绕过独立的高风险和安全策略。
 
 git:
-  # Whether the Git baseline commit is captured when a Loop run starts.
+  # 是否在 Loop 初始化时记录 Git 基线 Commit。
   captureBaselineAtInit: true
-  # Whether the Git branch is recorded in the Loop state.
+  # 是否记录 Loop 启动时所在的 Git 分支。
   recordBranch: true
-  # Whether a dirty working tree blocks Loop initialization.
+  # 工作区存在未提交修改时，是否阻止 Loop 初始化。
   requireCleanBaseline: false
-  # Whether the Git diff from the baseline is captured before completion.
+  # 是否在 Loop 完成前记录相对于基线的 Git Diff。
   captureDiffBeforeCompletion: true
 
 evidence:
-  # Whether Loop records verification and review evidence.
+  # 是否启用验证和 Review 证据记录。
   enabled: true
-  # Directory where run evidence is stored.
+  # Loop 运行证据的保存目录。
   path: .loop/evidence/
-  # Whether every required acceptance criterion must have associated evidence.
+  # 是否要求每一个验收标准都关联对应的证据。
   requireAcceptanceCriterionAssociation: true
-  # Whether failed verification evidence is preserved for later FIX iterations.
+  # 是否保留验证失败产生的证据，供后续 FIX 使用。
   preserveFailures: true
 
-# Complete set of states supported by the Loop state machine.
+# Loop 状态机支持的完整状态列表。
 states:
-  # Run initialization and context loading.
+  # Loop 初始化并加载项目上下文。
   - INIT
-  # Goal and acceptance-criteria definition/review.
+  # 定义和 Review Goal、Acceptance Criteria 以及验证策略。
   - GOAL_REVIEW
-  # Approval gate before planning and implementation.
+  # 执行前的用户授权确认 Gate。
   - WAITING_FOR_GOAL_CONFIRMATION
-  # Convert the confirmed goal into executable tasks.
+  # 将已确认的 Goal 转换为可执行任务。
   - PLAN
-  # Execute the current implementation task.
+  # 执行当前实现任务。
   - IMPLEMENT
-  # Verify the implementation against the acceptance criteria.
+  # 根据 Acceptance Criteria 验证实现结果。
   - VERIFY
-  # Review implementation quality, evidence, rules, and Git diff.
+  # Review 实现质量、证据、项目规则以及 Git Diff。
   - REVIEW
-  # Approval gate before completing the run.
+  # 完成前的最终结果确认 Gate。
   - READY_FOR_CONFIRMATION
-  # Apply fixes after failed verification, review, or user rejection.
+  # 验证、Review 或用户拒绝结果后执行修复。
   - FIX
-  # Successful terminal state.
+  # Loop 成功完成后的终止状态。
   - DONE
-  # Terminal state for unsafe or impossible continuation.
+  # 无法安全继续执行时进入的终止状态。
   - BLOCKED
 
 confirmation:
   goal:
-    # Whether the goal confirmation gate exists as a required workflow checkpoint.
+    # 是否启用 Goal 确认 Gate。
     required: true
-    # Whether the goal must be approved before implementation can begin.
+    # 是否要求在进入 IMPLEMENT 前完成 Goal 确认。
     beforeImplementation: true
   result:
-    # Whether final result confirmation is part of the completion contract.
+    # 是否启用最终结果确认 Gate。
     required: true
-    # Whether the result must be accepted before entering DONE.
+    # 是否要求在进入 DONE 前完成最终结果确认。
     beforeDone: true
 
 workflow:
   testFirst:
-    # Whether the project's test-first policy is enabled for Loop execution.
+    # 是否启用项目的 Test First 策略。
     enabled: true
-    # Whether test files must be created or modified before implementation files when policy requires it.
+    # Test First 策略要求时，是否必须先创建或修改测试文件。
     testFilesBeforeImplementation: true
-    # Whether implementation-file modification is blocked during the test-first phase.
+    # Test First 阶段是否禁止修改实现文件。
     implementationModificationBlockedDuringTestPhase: true
-    # Whether a deliberately failing executable test is mandatory before implementation.
+    # 是否要求实现前必须存在一个可执行且失败的测试。
     requireExecutableRedWithoutImplementation: false
 
 completion:
-  # Whether every required acceptance criterion must be satisfied before completion.
+  # 是否要求所有 Acceptance Criteria 都满足后才能完成。
   requireAllAcceptanceCriteria: true
-  # Whether an Agent's completion claim can count as verification evidence.
+  # Agent 自己声称完成是否可以作为验证证据。
   agentClaimIsEvidence: false
-  # Whether applicable verification must pass before completion.
+  # 是否要求所有适用的验证通过后才能完成。
   requireVerificationPass: true
-  # Whether review must pass before completion.
+  # 是否要求 Review 通过后才能完成。
   requireReviewPass: true
-  # Whether user confirmation is part of the completion contract when policy requires it.
+  # 是否将用户确认作为完成条件；具体是否需要人工确认由 Permission/Trust Policy 决定。
   requireUserConfirmation: true
