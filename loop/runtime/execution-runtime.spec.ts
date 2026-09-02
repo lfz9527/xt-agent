@@ -5,9 +5,7 @@ import type { RunRuntime } from './run-runtime';
 
 function state(status: string, facts: Partial<LoopRuntimeState['facts']> = {}): LoopRuntimeState {
   return {
-    runId: 'run-1',
-    status,
-    policyRevision: 1,
+    runId: 'run-1', status, policyRevision: 1,
     snapshot: { runId: 'run-1', policyRevision: 1, trust: 'standard', permissions: {}, effectivePolicy: {}, resolvedAt: new Date().toISOString() },
     facts: {
       executionApprovalSatisfied: true, planArtifactExists: true, implementationCompleted: true,
@@ -85,5 +83,18 @@ describe('ExecutionRuntime', () => {
   it('rejects an invalid retry limit at construction time', () => {
     const h = harness(state('FIX'));
     expect(() => new ExecutionRuntime(h.runtime, h.kernel, () => ({ read: () => h.getState(), write: () => undefined }), h.executor, { maxFixAttempts: 0 })).toThrow('[LOOP_BLOCKED]');
+  });
+
+  it('requires valid evidence before allowing READY_FOR_CONFIRMATION to become DONE', async () => {
+    const h = harness(state('READY_FOR_CONFIRMATION'));
+    h.executor.execute = vi.fn(async () => ({ evidence: [{ id: 'e-1', runId: 'run-1', criterion: 'acceptance', status: 'passed', confidence: 'high' }] }));
+    await h.runtime.step('run-1');
+    expect(h.kernel.transition).toHaveBeenCalledWith('DONE');
+  });
+
+  it('blocks completion when READY_FOR_CONFIRMATION has no evidence', async () => {
+    const h = harness(state('READY_FOR_CONFIRMATION'));
+    await expect(h.runtime.step('run-1')).rejects.toThrow('[LOOP_BLOCKED] completion evidence is required');
+    expect(h.getState().status).toBe('BLOCKED');
   });
 });
