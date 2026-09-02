@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
-import { dirname, join, relative, resolve } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 
 export type RunArtifactKind = 'plan' | 'spec' | 'evidence' | 'review';
 
@@ -99,8 +99,9 @@ export class RunArtifactStore {
 
   private artifactAbsolutePath(relativePath: string): string {
     const target = resolve(this.workspace, relativePath);
-    const workspacePrefix = `${this.workspace}/`;
-    if (target !== this.workspace && !target.startsWith(workspacePrefix)) {
+    // 用相对路径判断是否落在 workspace 内，避免 Windows 反斜杠与正斜杠混用导致误判穿越。
+    const rel = relative(this.workspace, target);
+    if (rel.startsWith('..') || isAbsolute(rel)) {
       throw new Error('[LOOP_BLOCKED] artifact path escapes .loop workspace');
     }
     return target;
