@@ -99,7 +99,7 @@ export class RunArtifactStore {
 
   private artifactAbsolutePath(relativePath: string): string {
     const target = resolve(this.workspace, relativePath);
-    const workspacePrefix = `${this.workspace}${relative === undefined ? '' : '/'}`;
+    const workspacePrefix = `${this.workspace}/`;
     if (target !== this.workspace && !target.startsWith(workspacePrefix)) {
       throw new Error('[LOOP_BLOCKED] artifact path escapes .loop workspace');
     }
