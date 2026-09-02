@@ -3,17 +3,19 @@ import type { LoopRuntimeState, LoopRuntimeKernel, StateStore } from './kernel';
 import type { RunRuntime } from './run-runtime';
 import { checkpointInputFingerprint, type CheckpointStore } from './checkpoint';
 import type { HumanApprovalDecision, HumanApprovalGate, HumanApprovalGateName, HumanApprovalProvider } from './human-approval';
+import { StageRegistry } from './stage-registry';
 
 export type ExecutionStage = 'GOAL_REVIEW' | 'PLAN' | 'IMPLEMENT' | 'VERIFY' | 'REVIEW' | 'FIX' | 'READY_FOR_CONFIRMATION';
 export interface StageResult { facts?: Partial<LoopRuntimeState['facts']>; checkpoint?: string; }
 export interface StageExecutor { execute(stage: ExecutionStage, state: LoopRuntimeState): Promise<StageResult>; }
-export interface ExecutionRuntimeOptions { maxFixAttempts?: number; checkpointStore?: CheckpointStore; humanApprovalGate?: HumanApprovalGate; }
+export interface ExecutionRuntimeOptions { maxFixAttempts?: number; checkpointStore?: CheckpointStore; humanApprovalGate?: HumanApprovalGate; stageRegistry?: StageRegistry; }
 
 /** P2-3 Execution Runtime：阶段完成后持久化 checkpoint；重启后优先恢复 checkpoint，避免重复调用 Agent/Tool。 */
 export class ExecutionRuntime {
   private readonly maxFixAttempts: number;
   private readonly checkpointStore?: CheckpointStore;
   private readonly humanApprovalGate?: HumanApprovalGate;
+  private readonly stageRegistry: StageRegistry;
 
   constructor(
     private readonly runs: RunRuntime,
@@ -25,12 +27,13 @@ export class ExecutionRuntime {
     this.maxFixAttempts = options.maxFixAttempts ?? 3;
     this.checkpointStore = options.checkpointStore;
     this.humanApprovalGate = options.humanApprovalGate;
+    this.stageRegistry = options.stageRegistry ?? new StageRegistry();
     if (!Number.isInteger(this.maxFixAttempts) || this.maxFixAttempts < 1) throw new Error('[LOOP_BLOCKED] maxFixAttempts must be a positive integer');
   }
 
   async step(runId: string): Promise<LoopRuntimeState> {
     let state = this.runs.loadRun(runId);
-    const stage = this.stageFor(state.status);
+    const stage = this.stageRegistry.resolve(state.status);
     if (!stage) return state;
     const recovered = this.recoverCheckpoint(state, stage);
     if (recovered) return recovered;
@@ -106,7 +109,6 @@ export class ExecutionRuntime {
   }
 
   private updateFacts(runId: string, facts: Partial<LoopRuntimeState['facts']>): void { const store = this.stateStoreFactory(runId); const state = store.read(); store.write({ ...state, facts: { ...state.facts, ...facts } }); }
-  private stageFor(status: string): ExecutionStage | undefined { return ({ INIT: 'GOAL_REVIEW', GOAL_REVIEW: 'GOAL_REVIEW', PLAN: 'PLAN', IMPLEMENT: 'IMPLEMENT', VERIFY: 'VERIFY', REVIEW: 'REVIEW', FIX: 'FIX' } as Record<string, ExecutionStage>)[status]; }
   private nextStatus(state: LoopRuntimeState, stage: ExecutionStage): string | undefined {
     switch (stage) {
       case 'GOAL_REVIEW': return state.status === 'INIT' ? 'GOAL_REVIEW' : 'WAITING_FOR_GOAL_CONFIRMATION';
