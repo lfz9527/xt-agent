@@ -34,7 +34,8 @@ Loop 是通用的、有状态的 Agent 任务控制协议。Agent 负责工作�
 - `.loop/runtime/`：Runtime 状态、历史和 Policy Snapshot。
 - `loop/config.yaml`：引擎能力、固定工作流、默认限制和 Trust 等级语义。
 - `loop/schemas/`：State、Policy、Policy Snapshot、Evidence、Artifact 契约。
-- `loop/runtime/enforcement.ts`：Runtime Enforcement 原语；实际 Executor 不得绕过该边界。
+- `loop/runtime/enforcement.ts`：Runtime Enforcement 原语。
+- `loop/runtime/kernel.ts`：Runtime Enforcement 集成边界；实际 Capability Executor 和 StateStore 必须通过 Kernel。
 
 ```text
 .loop/config.yaml
@@ -49,9 +50,9 @@ Effective Policy
        ↓
 Policy Snapshot + Revision
        ↓
-Runtime Enforcement
-       ↓
-Capability Executor / State Transition
+Runtime Kernel
+       ├── Capability Enforcement → Capability Executor
+       └── Transition Enforcement → StateStore
 ```
 
 ## Trigger
@@ -60,15 +61,17 @@ Loop 只能由显式 `/loop` 调用启动或恢复。普通对话不得隐式启
 
 ## Runtime Enforcement
 
-Runtime Enforcement 是 P1 的实际执行边界，不是文档约定。所有 Capability 执行和 State Transition 都必须先经过 Enforcement。
+Runtime Enforcement 是实际执行边界，不是文档约定。所有 Capability 执行和 State Transition 都必须先经过 `LoopRuntimeKernel`。
 
 ### Capability
 
 执行 Capability 前必须提供：Run ID、Policy Snapshot、Snapshot Revision、当前 Policy Revision、Capability Decision 和 Approval Decision。
 
-Enforcement 顺序：
+强制执行链：
 
 ```text
+Kernel.executeCapability()
+       ↓
 Run / Snapshot 校验
        ↓
 Policy Revision Match
@@ -79,10 +82,9 @@ Security / Dangerous Check
        ↓
 Approval Decision
        ↓
-ALLOW → Executor
-CONFIRM → 等待 Approval
-DENY → 停止
-BLOCKED → 停止并保留原因
+ALLOW → CapabilityExecutor.execute()
+CONFIRM → ApprovalProvider → 重新校验 Revision → Executor
+DENY / BLOCKED → 不调用 Executor
 ```
 
 强制规则：
@@ -92,14 +94,20 @@ BLOCKED → 停止并保留原因
 - Revision mismatch 必须 `BLOCKED`。
 - `deny` 永远不能被 Approval、Trust 或 Agent 意图覆盖。
 - `confirm` 不能直接执行；只有 `approved` 或 `automatic` 才能继续。
+- Approval 完成后必须再次读取当前 Policy Revision，再进入 Executor。
 - 高风险 Capability 没有显式 `confirm` 安全路径时不得执行。
+- Capability Executor 不得自行绕过 Kernel 调用底层能力。
 
 ### State Transition
 
-State 更新不得直接写入 `status`。必须先验证 `allowedNext`，再验证对应 Transition Guards。
+State 更新不得直接写入 `status`。必须调用 `LoopRuntimeKernel.transition()`，由 Kernel 先验证 Revision、允许拓扑和对应 Transition Guards，再写入 StateStore。
 
 ```text
 Current State
+    ↓
+Kernel.transition()
+    ↓
+Policy Revision Match
     ↓
 Allowed Transition
     ↓
@@ -107,10 +115,10 @@ Transition Guard
     ↓
 Policy / Approval / Evidence / Acceptance
     ↓
-Persist State
+StateStore.write()
 ```
 
-P1 Runtime 至少强制：
+P1.5 Runtime 至少强制：
 
 - `WAITING_FOR_GOAL_CONFIRMATION → PLAN`：执行前 Approval + Revision Match。
 - `PLAN → IMPLEMENT`：Plan Artifact 存在。
@@ -121,6 +129,8 @@ P1 Runtime 至少强制：
 - `REVIEW → FIX`：Review Failed。
 - `READY_FOR_CONFIRMATION → DONE`：Acceptance、Verification、Review 和 Final Approval 全部满足，并且 Revision Match。
 - `FIX → IMPLEMENT`：Fix 次数未超过限制。
+- `PAUSED` 只能通过合法 Resume Transition 恢复。
+- `BLOCKED` 不允许原地 Resume。
 
 ### PAUSED / BLOCKED
 
