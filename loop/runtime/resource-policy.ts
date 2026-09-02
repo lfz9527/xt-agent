@@ -45,9 +45,24 @@ export function evaluateResourceMutation(context: ResourceMutationContext): Reso
 export function matchesResource(pattern: string, path: string): boolean {
   const normalizedPattern = normalizePath(pattern);
   const normalizedPath = normalizePath(path);
-  const escaped = normalizedPattern.replace(/[.+^${}()|[\]\\]/g, '\\$&');
-  const regex = `^${escaped.replace(/\*\*/g, '.*').replace(/\*/g, '[^/]*')}$`;
-  return new RegExp(regex).test(normalizedPath);
+  let regex = '';
+  for (let i = 0; i < normalizedPattern.length; i += 1) {
+    const char = normalizedPattern[i];
+    if (char === '*' && normalizedPattern[i + 1] === '*') {
+      i += 1;
+      if (normalizedPattern[i + 1] === '/') {
+        i += 1;
+        regex += '(?:.*/)?';
+      } else {
+        regex += '.*';
+      }
+    } else if (char === '*') {
+      regex += '[^/]*';
+    } else {
+      regex += /[.+^${}()|[\]\\?]/.test(char) ? `\\${char}` : char;
+    }
+  }
+  return new RegExp(`^${regex}$`).test(normalizedPath);
 }
 
 function normalizePath(value: string): string {
