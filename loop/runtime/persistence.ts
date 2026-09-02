@@ -1,4 +1,4 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { LoopRuntimeState } from './kernel';
 
@@ -76,7 +76,7 @@ export class FileStateStore {
       const mainMtime = statSync(this.statePath).mtimeMs;
       const tempMtime = statSync(this.tempPath).mtimeMs;
       if (tempMtime > mainMtime) renameSync(this.tempPath, this.statePath);
-      else writeFileSync(this.tempPath, '', { encoding: 'utf8', flag: 'w' });
+      else unlinkSync(this.tempPath);
     }
     return mainExists || existsSync(this.statePath) ? this.statePath : undefined;
   }
