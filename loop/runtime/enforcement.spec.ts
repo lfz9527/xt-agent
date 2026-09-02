@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { canResume, enforceCapability, enforceTransition, validatePolicyRevision } from './enforcement';
+import { canResume, enforceCapability, enforceTransition, validatePolicyRevision, type RuntimeFacts } from './enforcement';
 
 const snapshot = { runId: 'run-1', policyRevision: 1, trust: 'low', permissions: {}, effectivePolicy: {}, resolvedAt: new Date(0).toISOString() };
+const facts: RuntimeFacts = {
+  executionApprovalSatisfied: false, planArtifactExists: false, implementationCompleted: false, verificationPassed: false,
+  verificationFailed: false, reviewPassed: false, reviewFailed: false, acceptancePassed: false, finalApprovalSatisfied: false,
+  finalApprovalRejected: false, fixAttemptsWithinLimit: true, resumeRequested: false, resumeStateValid: false, pauseExpired: false,
+};
 
 describe('runtime enforcement', () => {
   it('blocks stale or cross-run policy snapshots', () => {
@@ -19,10 +24,15 @@ describe('runtime enforcement', () => {
   });
 
   it('requires transition guards and valid topology', () => {
-    expect(enforceTransition({ from: 'VERIFY', to: 'REVIEW', guards: { verificationPassed: false } })).toBe(false);
-    expect(enforceTransition({ from: 'VERIFY', to: 'REVIEW', guards: { verificationPassed: true } })).toBe(true);
-    expect(enforceTransition({ from: 'VERIFY', to: 'PLAN', guards: {} })).toBe(false);
-    expect(enforceTransition({ from: 'PAUSED', to: 'INIT', guards: { resumeRequested: true, resumeStateValid: true } })).toBe(false);
+    expect(enforceTransition({ from: 'VERIFY', to: 'REVIEW', facts })).toBe(false);
+    expect(enforceTransition({ from: 'VERIFY', to: 'REVIEW', facts: { ...facts, verificationPassed: true } })).toBe(true);
+    expect(enforceTransition({ from: 'VERIFY', to: 'PLAN', facts })).toBe(false);
+    expect(enforceTransition({ from: 'PAUSED', to: 'INIT', facts: { ...facts, resumeRequested: true, resumeStateValid: true } })).toBe(false);
+  });
+
+  it('ignores caller-supplied guard values and evaluates persisted facts', () => {
+    expect(enforceTransition({ from: 'VERIFY', to: 'REVIEW', facts, guards: { verificationPassed: true } })).toBe(false);
+    expect(enforceTransition({ from: 'VERIFY', to: 'REVIEW', facts: { ...facts, verificationPassed: true }, guards: { verificationPassed: false } })).toBe(true);
   });
 
   it('requires monotonically increasing policy revisions', () => {
