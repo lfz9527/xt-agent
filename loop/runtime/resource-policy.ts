@@ -1,7 +1,7 @@
 export type RuntimeResourceKind = 'readonly' | 'mutable' | 'protected' | 'runtime-owned' | 'run-private';
 
 export interface RuntimeResourcePolicy {
-  /** 文件/目录路径或 Glob，例如 `src/**/*.ts`。 */
+  /** 文件/目录路径或 Glob，例如 `src/**/文件.ts`。 */
   resource: string;
   kind: RuntimeResourceKind;
   /** 允许访问该资源进行修改的 Capability。空数组表示禁止修改。 */
