@@ -1,0 +1,39 @@
+# Loop Runtime 产物存储 Schema。
+# 本文件定义项目 `.loop/` 工作区内各类运行产物的标准目录和命名规则。
+# 它不保存具体项目 Trust、Permission 或某次运行的实际状态。
+version: 1
+
+workspace:
+  # 每个项目的 Loop 工作区固定为项目根目录下的 `.loop/`。
+  root: .loop
+
+artifacts:
+  runtime:
+    # 一次 Loop Runtime 的状态与运行历史。
+    directory: runtime
+    state: state.yaml
+    history: history.jsonl
+  plans:
+    # 每次运行生成的执行计划。
+    directory: plans
+    filename: <run-id>.md
+  specs:
+    # 每次运行生成的 Spec / PECS 产物。
+    directory: specs/<run-id>
+    filename: <spec-id>.pecs.md
+  evidence:
+    # 每次运行产生的验证证据。
+    directory: evidence/<run-id>
+    filename: <evidence-id>.yaml
+  reviews:
+    # 每次运行产生的 Review 结果。
+    directory: reviews
+    filename: <run-id>.md
+
+rules:
+  # 所有运行产物必须通过 run-id 与一次 Loop 运行关联。
+  requireRunIdAssociation: true
+  # Runtime 产物与项目 Trust / Permission 配置必须分离。
+  runtimeCannotOwnProjectPolicy: true
+  # 产物路径不能扩散到项目根目录的其他固定对象。
+  workspaceRootIsCanonical: true
