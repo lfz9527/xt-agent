@@ -66,7 +66,7 @@ permissions:
 # Trust levels may provide default approval behavior, but must not bypass
 # independent high-risk or safety policies.
 
- git:
+git:
   captureBaselineAtInit: true
   recordBranch: true
   requireCleanBaseline: false
