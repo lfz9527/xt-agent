@@ -1,165 +1,162 @@
-# Loop 默认配置文件版本。
+# Loop 引擎默认配置。
+# 本文件属于 Loop 引擎，不属于具体项目。
+# 项目级配置统一由项目根目录唯一的 `.loop` 文件提供。
 version: 1
 
 loop:
   # 单次 Loop 运行允许执行的最大迭代次数。
   maxIterations: 10
-  # 单次 Loop 运行允许执行的最大 FIX 修复次数，超过后进入 BLOCKED。
+  # 单次 Loop 运行允许执行的最大 FIX 修复次数。
   maxFixAttempts: 5
-  # 同一失败连续出现的最大次数，超过后进入 BLOCKED。
+  # 同一失败连续出现的最大次数。
   maxSameFailure: 2
 
 state:
-  # 是否启用 Loop 运行状态持久化。
+  # 是否启用 Runtime 状态持久化。
   enabled: true
-  # Loop Runtime 状态文件路径；具体项目可按自身运行时实现调整。
+  # Runtime 状态默认路径；不属于项目级配置。
   path: .loop-state.yaml
-  # 持久化状态必须包含的字段。
-  requiredFields:
-    # 当前 Loop 运行的唯一 ID。
-    - run.id
-    # 当前状态机状态。
-    - run.status
-    # 当前已经执行的迭代次数。
-    - run.iteration
-    # 当前已经消耗的 FIX 次数。
-    - run.fixAttempts
-    # 当前连续重复失败的次数。
-    - run.sameFailureCount
-    # 当前项目根目录。
-    - context.projectRoot
-    # Loop 启动时记录的 Git 基线 Commit。
-    - context.baselineCommit
-    # Loop 启动时记录的 Git 基线分支。
-    - context.baselineBranch
-    # 用户本次要求 Loop 完成的目标。
-    - request.goal
-    # 用于判断任务是否完成的验收标准。
-    - request.acceptanceCriteria
-    # 当前正在执行的任务阶段。
-    - active.phase
-    # 当前验证结果状态。
-    - verification.status
-    # 当前 Review 结果状态。
-    - review.status
-    # 本次运行解析得到的权限快照。
-    - permission.snapshot
 
-# Trust Level 是项目级配置。
-# 项目通过根目录唯一的 `.loop` 文件选择当前 Trust Level；这里仅定义通用等级的行为。
+# Trust 只定义等级语义，不保存任何项目当前值。
+# 项目当前 Trust 必须从项目根目录唯一的 `.loop` 文件读取。
 trust:
   levels:
     low:
       approval:
-        # LOW 信任下，执行前必须经过用户确认。
+        # LOW：执行前需要用户确认。
         beforeExecution: required
-        # LOW 信任下，完成前必须经过用户确认。
+        # LOW：完成前需要用户确认。
         beforeFinalize: required
     medium:
       approval:
-        # MEDIUM 信任下，执行前自动通过确认 Gate。
+        # MEDIUM：执行前自动通过。
         beforeExecution: automatic
-        # MEDIUM 信任下，完成前仍需要用户确认最终结果。
+        # MEDIUM：完成前需要用户确认。
         beforeFinalize: required
     high:
       approval:
-        # HIGH 信任下，执行前自动通过确认 Gate。
+        # HIGH：执行前自动通过。
         beforeExecution: automatic
-        # HIGH 信任下，完成前自动通过确认 Gate。
+        # HIGH：完成前自动通过。
         beforeFinalize: automatic
     full:
       approval:
-        # FULL 信任下，执行前自动通过确认 Gate。
+        # FULL：执行前自动通过。
         beforeExecution: automatic
-        # FULL 信任下，完成前自动通过确认 Gate。
+        # FULL：完成前自动通过。
         beforeFinalize: automatic
 
+# 引擎默认权限。
+# 项目 `.loop` 可以覆盖，但只能收紧，不能突破安全边界。
 permissions:
   approval:
-    # 执行前审批策略；项目未覆盖时继承项目 Trust Level。
+    # 未覆盖时跟随项目 Trust Level。
     beforeExecution: inherit
-    # 完成前审批策略；项目未覆盖时继承项目 Trust Level。
+    # 未覆盖时跟随项目 Trust Level。
     beforeFinalize: inherit
+  filesystem:
+    # 默认允许读取项目文件。
+    read: allow
+    # 默认允许修改项目文件。
+    write: allow
+  shell:
+    # 默认允许普通 Shell 命令。
+    execute: allow
+    # 高风险 Shell 命令默认需要独立确认。
+    dangerous: confirm
+  git:
+    # 默认允许读取 Git 信息。
+    read: allow
+    # 创建 Commit 默认需要确认。
+    commit: confirm
+    # Push 默认需要确认。
+    push: confirm
+  network:
+    # 网络请求默认需要确认。
+    request: confirm
 
-# Trust Level 只能提供默认审批策略，不能绕过独立的高风险和安全策略。
-# Capability Permission 可以由项目 `.loop` 文件覆盖，但显式拒绝和硬性安全边界始终优先。
+security:
+  # 高风险操作不能仅因 Trust 提升而自动放行。
+  highRiskRequiresIndependentPolicy: true
+  # 任意显式 deny 优先于 Trust 和其他默认策略。
+  denyAlwaysWins: true
 
+# Git 默认行为。
 git:
-  # 是否在 Loop 初始化时记录 Git 基线 Commit。
+  # 是否在 INIT 记录 Git 基线 Commit。
   captureBaselineAtInit: true
-  # 是否记录 Loop 启动时所在的 Git 分支。
+  # 是否记录 INIT 时所在分支。
   recordBranch: true
-  # 工作区存在未提交修改时，是否阻止 Loop 初始化。
+  # 工作区有未提交修改时是否阻止 INIT。
   requireCleanBaseline: false
-  # 是否在 Loop 完成前记录相对于基线的 Git Diff。
+  # 是否在完成前记录相对基线的 Diff。
   captureDiffBeforeCompletion: true
 
 evidence:
-  # 是否启用验证和 Review 证据记录。
+  # 是否启用 Evidence。
   enabled: true
-  # Loop Runtime 证据的保存目录；不属于项目级 `.loop` 配置。
+  # Runtime Evidence 默认路径；不是项目配置。
   path: .loop-evidence/
-  # 是否要求每一个验收标准都关联对应的证据。
+  # 是否要求 Evidence 关联 Acceptance Criterion。
   requireAcceptanceCriterionAssociation: true
-  # 是否保留验证失败产生的证据，供后续 FIX 使用。
+  # 是否保留失败 Evidence。
   preserveFailures: true
 
-# Loop 状态机支持的完整状态列表。
 states:
-  # Loop 初始化并加载项目上下文。
+  # Loop 初始化。
   - INIT
-  # 定义和 Review Goal、Acceptance Criteria 以及验证策略。
+  # 目标评审。
   - GOAL_REVIEW
-  # 执行前的用户授权确认 Gate。
+  # 执行前审批 Gate。
   - WAITING_FOR_GOAL_CONFIRMATION
-  # 将已确认的 Goal 转换为可执行任务。
+  # 任务规划。
   - PLAN
-  # 执行当前实现任务。
+  # 实现。
   - IMPLEMENT
-  # 根据 Acceptance Criteria 验证实现结果。
+  # 验证。
   - VERIFY
-  # Review 实现质量、证据、项目规则以及 Git Diff。
+  # Review。
   - REVIEW
-  # 完成前的最终结果确认 Gate。
+  # 完成前审批 Gate。
   - READY_FOR_CONFIRMATION
-  # 验证、Review 或用户拒绝结果后执行修复。
+  # 修复。
   - FIX
-  # Loop 成功完成后的终止状态。
+  # 完成。
   - DONE
-  # 无法安全继续执行时进入的终止状态。
+  # 阻断。
   - BLOCKED
 
 confirmation:
   goal:
-    # 是否启用 Goal 审批 Gate；是否需要人工确认由 Permission/Trust Policy 决定。
+    # 是否启用 Goal Gate；人工确认与否由项目 Trust/Permission 决定。
     required: true
-    # 是否要求在进入 IMPLEMENT 前完成 Goal 审批 Gate。
+    # 是否必须在 IMPLEMENT 前通过 Goal Gate。
     beforeImplementation: true
   result:
-    # 是否启用最终结果审批 Gate；是否需要人工确认由 Permission/Trust Policy 决定。
+    # 是否启用 Final Gate；人工确认与否由项目 Trust/Permission 决定。
     required: true
-    # 是否要求在进入 DONE 前完成最终结果审批 Gate。
+    # 是否必须在 DONE 前通过 Final Gate。
     beforeDone: true
 
 workflow:
   testFirst:
-    # 是否启用项目的 Test First 策略。
+    # 是否启用 Test First。
     enabled: true
-    # Test First 策略要求时，是否必须先创建或修改测试文件。
+    # Test First 时是否必须先处理测试文件。
     testFilesBeforeImplementation: true
     # Test First 阶段是否禁止修改实现文件。
     implementationModificationBlockedDuringTestPhase: true
-    # 是否要求实现前必须存在一个可执行且失败的测试。
+    # 是否要求实现前存在失败测试。
     requireExecutableRedWithoutImplementation: false
 
 completion:
-  # 是否启用完成前审批机制；具体是否需要人工确认由 Permission/Trust Policy 决定。
+  # 是否启用 Final Gate。
   enableFinalApprovalGate: true
-  # 是否要求所有 Acceptance Criteria 都满足后才能完成。
+  # 是否要求全部 Acceptance Criteria 满足。
   requireAllAcceptanceCriteria: true
-  # Agent 自己声称完成是否可以作为验证证据。
+  # Agent 自己的完成声明不能作为 Evidence。
   agentClaimIsEvidence: false
-  # 是否要求所有适用的验证通过后才能完成。
+  # 是否要求验证通过。
   requireVerificationPass: true
-  # 是否要求 Review 通过后才能完成。
+  # 是否要求 Review 通过。
   requireReviewPass: true
