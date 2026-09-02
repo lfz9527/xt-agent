@@ -1,64 +1,23 @@
-# Loop 默认策略文件版本。
+# Loop 引擎默认策略。
+# 本文件只提供没有被项目 `.loop` 明确覆盖时使用的通用策略。
 version: 1
 
+approval:
+  # Goal Gate 的默认审批行为由项目 Trust 和 Permission Resolution 决定。
+  beforeExecution: inherit
+  # Final Gate 的默认审批行为由项目 Trust 和 Permission Resolution 决定。
+  beforeFinalize: inherit
+
+safety:
+  # 用户明确取消后必须停止当前运行。
+  cancellationStopsExecution: true
+  # 无法安全解析权限或状态时必须阻断。
+  invalidPolicyBlocks: true
+  # 显式 deny 永远优先。
+  denyAlwaysWins: true
+
 completion:
-  # 完成任务时要求至少存在一种通过状态的验证证据。
-  requiredEvidence:
-    # 只有通过（passed）的证据才能作为完成依据。
-    - passed
-  # Loop 完成任务必须满足的全部规则。
-  rules:
-    # 所有必需的验收标准都必须通过。
-    - all_required_acceptance_criteria_must_pass
-    # Agent 自己声称完成不能作为任务完成条件。
-    - agent_claim_cannot_complete_task
-    # 验证阶段必须通过。
-    - verification_must_pass
-    # Review 阶段必须通过。
-    - review_must_pass
-    # 只有当前生效的 Permission/Trust Policy 要求人工确认时，用户确认完成后任务才能真正结束。
-    - user_confirmation_required_when_policy_requires_it
-
-evidence:
-  # 不同类型证据的默认可信度等级。
-  confidence:
-    # Agent 自己的完成声明可信度最低。
-    agent_claim: low
-    # 人工或 Agent Review 产生的证据为中等可信度。
-    review: medium
-    # 静态分析结果为高可信度。
-    static: high
-    # 命令执行结果为高可信度。
-    command: high
-    # 自动化测试结果为高可信度。
-    test: high
-    # 运行时验证结果为高可信度。
-    runtime: high
-
-confirmation:
-  goal:
-    # 是否要求用户确认 Goal。
-    required: true
-    # Goal 未确认时禁止进入实现阶段。
-    blocksImplementation: true
-  result:
-    # 是否启用最终结果确认 Gate；是否需要人工确认由 Permission/Trust Policy 决定。
-    required: true
-    # 最终结果确认 Gate 未通过时禁止进入 DONE。
-    blocksDone: true
-
-failure:
-  # 同一种失败连续出现超过该次数后，Loop 应停止继续尝试。
-  maxSameFailure: 2
-  # 单次 Loop 允许执行的最大 FIX 修复次数。
-  maxFixAttempts: 5
-
-security:
-  # 是否允许 Loop 在没有额外确认的情况下自动创建 Git Commit。
-  allowAutomaticCommit: false
-
-scope:
-  # 策略本身不包含具体业务领域逻辑，保持业务无关。
-  businessAgnostic: true
-  # 具体任务定义由 Loop 外部提供，不由策略文件定义。
-  taskDefinitionsOutsideLoop: true
+  # 只有满足验收标准、Verification、Review 和适用 Approval 才能完成。
+  requireAllGates: true
+  # Agent 自己的完成声明不能作为 Evidence。
+  agentClaimIsEvidence: false
