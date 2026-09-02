@@ -251,11 +251,55 @@ VERIFY / REVIEW / READY_FOR_CONFIRMATION → FIX → IMPLEMENT
 
 需要人工等待或外部依赖时进入 `PAUSED`；安全阻断进入 `BLOCKED`。
 
+## P2-6 / P2-7 Runtime Adapter
+
+CLI 是 Runtime Adapter，不是 Runtime 本身。Adapter 只能调用 Runtime API，不能复制 State Machine、Policy、Permission、Trust、Approval、Lock、Mutation 或 Evidence 逻辑。
+
+P2-6 当前开放：
+
+```bash
+loop replay <run-id>
+loop replay <run-id> --json
+```
+
+P2-7 新增：
+
+```bash
+loop run
+loop resume <run-id>
+```
+
+`loop run` 必须调用 `RunRuntime.createRun()`，再交给 `ExecutionRuntime.runUntilHalt()`；`loop resume` 必须调用 `RunRuntime.resume()`，从持久化 `facts.pausedFromStatus` 获取恢复目标，并通过 `LoopRuntimeKernel.transition()` 重新进入 State Machine。
+
+```text
+CLI
+ ↓
+RunService
+ ├── RunRuntime.createRun()
+ │       ↓
+ │   Runtime State + Policy Snapshot + Git Baseline
+ └── ExecutionRuntime.runUntilHalt()
+
+CLI
+ ↓
+RunService.resume(run-id)
+ ↓
+RunRuntime.resume()
+ ↓
+Kernel.transition(persisted pausedFromStatus)
+ ↓
+ExecutionRuntime.runUntilHalt()
+```
+
+`pausedFromStatus` 必须持久化在 Run State 中。禁止根据 `facts` 猜测恢复位置，也禁止使用聊天历史恢复 Runtime。
+
+P2-7 的 Adapter 错误必须保持非零：缺少 run-id、非法参数、Runtime Blocked、Policy Revision mismatch、缺少恢复目标或状态损坏均不能转换成成功。
+
 ## INIT / Resume
 
 INIT：定位项目根目录 → 加载规则 → 读取 `.loop/config.yaml` → 创建 Run ID → 创建该 Run 的 Runtime State → 捕获 Git baseline → 解析 Policy → 生成 Snapshot / Revision → 原子持久化初始 State。
 
-Resume：读取对应 Run 的持久化 State → 必须先通过 Schema / Snapshot / Run ID 校验 → 校验项目和 Git 上下文 → 重新解析当前 Policy → 比较 Revision → Revision mismatch 则 `BLOCKED` → 校验该 Run 的 Plan / Spec / Evidence / Review → 通过 Transition Guard 恢复。
+Resume：读取对应 Run 的持久化 State → 必须先通过 Schema / Snapshot / Run ID 校验 → 校验项目和 Git 上下文 → 重新解析当前 Policy → 比较 Revision → Revision mismatch 则 `BLOCKED` → 校验该 Run 的 Plan / Spec / Evidence / Review → 从持久化 `pausedFromStatus` 恢复原状态 → 通过 Kernel Transition Guard 继续执行。
 
 不得依赖聊天历史猜测 Runtime 状态。
 
