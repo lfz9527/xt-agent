@@ -78,7 +78,7 @@ Replay 后生成的报告落盘到当前 Run：
 
 P2-6 建立 Loop Runtime 的外部调用边界。CLI 是 Adapter，不实现状态机、Permission、Trust、Approval、Lock、Mutation 或 Evidence 逻辑。
 
-当前只开放 Replay：
+当前开放 Replay：
 
 ```bash
 loop replay <run-id>
@@ -100,8 +100,6 @@ RuntimeReplayReportStore
 ```
 
 CLI 不直接读取 `.loop/runtime/history.jsonl` 或 Run 文件。`ReplayService` 负责协调 Runtime Replay，并将派生报告落盘到 `.loop/runtime/runs/<run-id>/replay-report.json`。
-
-Human 输出用于人工诊断；`--json` 输出稳定的机器可读 `ReplayReport`，供未来 API、GUI、Agent 和 CI 复用。
 
 ## P2-7 Run / Resume Runtime Adapter
 
@@ -138,10 +136,10 @@ ExecutionRuntime.runUntilHalt()
 关键规则：
 
 - CLI 只是参数解析和错误边界，不实现 State Machine。
-- `RunService` 只负责协调 `RunRuntime`、`LoopRuntimeKernel` 和 `ExecutionRuntime`。
+- `RunService` 只负责协调 Runtime。
 - `loop run` 必须通过 `RunRuntime.createRun()` 创建 Run，不能自行生成 State。
 - `loop resume` 必须从持久化 Runtime Facts 中读取 `pausedFromStatus`，禁止根据当前事实猜测恢复位置。
-- Resume 仍必须通过 `Kernel.transition()`，因此 Policy Revision、Transition Guard 和安全边界继续由 Runtime 统一执行。
+- Resume 必须继续通过 Kernel 的 Transition Guard、Policy Revision 和安全边界。
 - Policy Revision mismatch、非法 Resume、缺失恢复目标或 Runtime corruption 都必须返回非零错误。
 - `BLOCKED` 不允许 Resume；`PAUSED` 才是可恢复状态。
 
@@ -151,9 +149,50 @@ ExecutionRuntime.runUntilHalt()
 .loop/runtime/runs/<run-id>/state.yaml
 ```
 
-因此进程崩溃、CLI 重启或聊天历史丢失后，Resume 仍然只依赖项目 `.loop/` 中的 Runtime State，而不是依赖 Agent 的上下文记忆。
+## P2-8 Approval Adapter / Human Gate CLI
 
-P2-7 暂不实现 `approve`、`pause`、`status` 等独立 CLI 命令；这些能力仍由 Runtime API 提供，后续 Adapter 再逐步暴露。
+P2-8 将 Runtime 已有的 Human Approval Gate 暴露为 CLI Adapter。CLI **不能直接修改 Runtime State**，也不能自行判断某个 Gate 是否应该通过；最终校验仍由 `HumanApprovalGate` 完成。
+
+```bash
+loop approve <run-id> --gate=execution
+loop approve <run-id> --gate=final
+loop reject <run-id> --gate=execution
+loop reject <run-id> --gate=final
+```
+
+调用链：
+
+```text
+CLI
+ ↓
+ApprovalService
+ ↓
+HumanApprovalGate.resolve()
+ ↓
+Run State / Policy Revision 校验
+ ↓
+Runtime Facts 持久化
+ ↓
+APPROVAL_RESOLVED Audit Event
+```
+
+Gate 语义：
+
+| Gate | 激活状态 | 写入事实 |
+|---|---|---|
+| `execution` | `WAITING_FOR_GOAL_CONFIRMATION` | `executionApprovalSatisfied` |
+| `final` | `READY_FOR_CONFIRMATION` | `finalApprovalSatisfied` / `finalApprovalRejected` |
+
+强制规则：
+
+- `approve` / `reject` 都必须经过 `HumanApprovalGate`。
+- Gate 不活跃时必须 `BLOCKED`。
+- Run ID、Snapshot 和 Policy Revision 不匹配时必须 `BLOCKED`。
+- Approval Resolution 必须产生 `APPROVAL_RESOLVED` 审计事件。
+- CLI 只负责参数解析、输出和 exit code；不拥有审批权限本身。
+- `approve` 不等于直接执行后续阶段；完成后仍必须由 Runtime Transition Guard 决定下一步。
+
+因此 `/loop`、CLI 和未来 Scheduler 都可以共用同一套 Human Gate / Runtime，而不会形成第二套审批状态机。
 
 ## Run 与 Resource
 
@@ -378,3 +417,4 @@ Agent 自己声称“完成”不能替代 Evidence。
 13. **Replay Report 是派生文件，`history.jsonl` 是权威审计事实。**
 14. **CLI 是 Runtime Adapter，不是 Runtime 本身。**
 15. **Resume 必须从持久化 Runtime Facts 恢复，不能依赖聊天上下文。**
+16. **Human Gate 是 Runtime 权威边界，CLI 不能绕过 Gate。**
