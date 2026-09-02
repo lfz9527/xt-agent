@@ -15,20 +15,23 @@ const state = { runId: 'run-1', status: 'PLAN', policyRevision: 3, snapshot, fac
 afterEach(() => rmSync(workspace, { recursive: true, force: true }));
 
 describe('FileStateStore', () => {
-  it('writes each run state into its own directory', () => {
+  it('writes each run state into its own directory without a shared temp filename', () => {
     const store = new FileStateStore(workspace, 'run-1'); store.write(state);
-    expect(store.read()).toEqual(state); expect(existsSync(join(workspace, 'runtime', 'runs', 'run-1', 'state.yaml'))).toBe(true);
-    expect(existsSync(join(workspace, 'runtime', 'runs', 'run-1', 'state.yaml.tmp'))).toBe(false);
+    expect(store.read()).toEqual(state);
+    const directory = join(workspace, 'runtime', 'runs', 'run-1');
+    expect(existsSync(join(directory, 'state.yaml'))).toBe(true);
+    expect(existsSync(join(directory, 'state.yaml.tmp'))).toBe(false);
   });
   it('keeps two run states independent', () => {
     const run1 = new FileStateStore(workspace, 'run-1'); const run2 = new FileStateStore(workspace, 'run-2');
     run1.write(state); run2.write({ ...state, runId: 'run-2', snapshot: { ...snapshot, runId: 'run-2' } });
     expect(run1.read().runId).toBe('run-1'); expect(run2.read().runId).toBe('run-2');
   });
-  it('recovers a completed temp state when the main file is missing', () => {
+  it('recovers a uniquely named temp state when the main file is missing', () => {
     const runtime = join(workspace, 'runtime', 'runs', 'run-1'); mkdirSync(runtime, { recursive: true });
-    writeFileSync(join(runtime, 'state.yaml.tmp'), JSON.stringify({ ...state, schemaVersion: 1 }));
+    writeFileSync(join(runtime, 'state.yaml.tmp-1-100-a'), JSON.stringify({ ...state, schemaVersion: 1 }));
     expect(new FileStateStore(workspace, 'run-1').read()).toEqual(state);
+    expect(existsSync(join(runtime, 'state.yaml'))).toBe(true);
   });
   it('blocks state belonging to another run', () => {
     const runtime = join(workspace, 'runtime', 'runs', 'run-1'); mkdirSync(runtime, { recursive: true });
@@ -39,6 +42,10 @@ describe('FileStateStore', () => {
     const runtime = join(workspace, 'runtime', 'runs', 'run-1'); mkdirSync(runtime, { recursive: true });
     writeFileSync(join(runtime, 'state.yaml'), JSON.stringify({ ...state, schemaVersion: 99 }));
     expect(() => new FileStateStore(workspace, 'run-1').read()).toThrow('schema version');
+  });
+  it('blocks unsafe run ids before constructing filesystem paths', () => {
+    expect(() => new FileStateStore(workspace, '../run-1')).toThrow('[LOOP_BLOCKED] invalid runId for FileStateStore');
+    expect(() => new FileStateStore(workspace, 'run/1')).toThrow('[LOOP_BLOCKED] invalid runId for FileStateStore');
   });
 });
 
@@ -57,5 +64,12 @@ describe('JsonlMutationJournal', () => {
     journal.append({ mutationId: 'mutation-1', runId: 'run-1', resource: 'src/a.ts', capability: 'code.modify', at: '2026-09-02T00:00:00.000Z', beforeWorktreeFingerprint: '', afterWorktreeFingerprint: ' M src/a.ts', result: 'committed' });
     const path = join(workspace, 'runtime', 'runs', 'run-1', 'mutation-journal.jsonl');
     expect(JSON.parse(readFileSync(path, 'utf8')).afterWorktreeFingerprint).toBe(' M src/a.ts');
+  });
+  it('blocks entries that cross the journal run boundary', () => {
+    const journal = new JsonlMutationJournal(workspace, 'run-1');
+    expect(() => journal.append({ mutationId: 'mutation-1', runId: 'run-2', resource: 'src/a.ts', capability: 'code.modify', at: '2026-09-02T00:00:00.000Z', beforeWorktreeFingerprint: '', afterWorktreeFingerprint: ' M src/a.ts', result: 'committed' })).toThrow('[LOOP_BLOCKED] mutation journal runId does not match its storage boundary');
+  });
+  it('blocks unsafe journal run ids', () => {
+    expect(() => new JsonlMutationJournal(workspace, '../run-1')).toThrow('[LOOP_BLOCKED] invalid runId for MutationJournal');
   });
 });
