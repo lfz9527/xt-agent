@@ -22,7 +22,8 @@ describe('RuntimeRunEventObserver', () => {
     unsubscribe();
     timeline.stage('run-1', 1, 'PLAN', 'completed');
 
-    expect(received).toEqual([expect.any(String)]);
+    expect(received).toHaveLength(1);
+    expect(received[0]).toEqual(expect.any(String));
   });
 
   it('isolates subscriptions by run', () => {
@@ -45,5 +46,15 @@ describe('RuntimeRunEventObserver', () => {
     const observer = new RuntimeRunEventObserver(new RunAuditTimeline({ append: () => undefined }), { read: () => [] });
     expect(() => observer.subscribe('', () => undefined)).toThrow('[LOOP_BLOCKED] runId is required for event observation');
     expect(() => observer.subscribe('run-1', null as never)).toThrow('[LOOP_BLOCKED] event observer must be a function');
+  });
+
+  it('does not let an observer exception interrupt the runtime timeline', () => {
+    const events: string[] = [];
+    const timeline = new RunAuditTimeline({ append: (next) => events.push(next.type) });
+    const observer = new RuntimeRunEventObserver(timeline, { read: () => [] });
+    observer.subscribe('run-1', () => { throw new Error('observer failed'); });
+
+    expect(() => timeline.stage('run-1', 1, 'PLAN', 'started')).not.toThrow();
+    expect(events).toEqual(['STAGE']);
   });
 });
