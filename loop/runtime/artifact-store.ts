@@ -29,7 +29,7 @@ export class RunArtifactStore {
   private readonly workspace: string;
   private readonly now: () => string;
 
-  constructor(private readonly options: RunArtifactStoreOptions = {}) {
+  constructor(options: RunArtifactStoreOptions = {}) {
     this.workspace = resolve(options.workspace ?? '.loop');
     this.now = options.now ?? (() => new Date().toISOString());
   }
@@ -64,12 +64,12 @@ export class RunArtifactStore {
   private writeText(runId: string, kind: RunArtifactKind, artifactId: string, content: string, relativePath: string): ArtifactRecord {
     this.assertId(runId, 'runId');
     this.assertId(artifactId, 'artifactId');
-    if (typeof content !== 'string') throw new Error('[LOOP_BLOCKED] artifact content must be text');
+    if (typeof content !== 'string') {
+      throw new Error('[LOOP_BLOCKED] artifact content must be text');
+    }
 
     const absolutePath = this.artifactAbsolutePath(relativePath);
     const timestamp = this.now();
-    const beforeExists = existsSync(absolutePath);
-    const createdAt = beforeExists ? this.readRecordTimestamp(absolutePath, timestamp) : timestamp;
     const sha256 = createHash('sha256').update(content, 'utf8').digest('hex');
     const tempPath = `${absolutePath}.tmp`;
 
@@ -77,7 +77,15 @@ export class RunArtifactStore {
     writeFileSync(tempPath, content, { encoding: 'utf8', flag: 'w' });
     renameSync(tempPath, absolutePath);
 
-    return { runId, kind, artifactId, path: relative(this.workspace, absolutePath).replaceAll('\\', '/'), sha256, createdAt, updatedAt: timestamp };
+    return {
+      runId,
+      kind,
+      artifactId,
+      path: relative(this.workspace, absolutePath).replaceAll('\\', '/'),
+      sha256,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
   }
 
   private relativeArtifactPath(runId: string, kind: RunArtifactKind, artifactId: string): string {
@@ -91,23 +99,16 @@ export class RunArtifactStore {
 
   private artifactAbsolutePath(relativePath: string): string {
     const target = resolve(this.workspace, relativePath);
-    const workspacePrefix = `${this.workspace}${relative ? '/' : ''}`;
-    const normalizedWorkspace = this.workspace.endsWith('/') ? this.workspace : `${this.workspace}/`;
-    if (target !== this.workspace && !target.startsWith(normalizedWorkspace)) {
+    const workspacePrefix = `${this.workspace}${relative === undefined ? '' : '/'}`;
+    if (target !== this.workspace && !target.startsWith(workspacePrefix)) {
       throw new Error('[LOOP_BLOCKED] artifact path escapes .loop workspace');
     }
-    void workspacePrefix;
     return target;
   }
 
   private assertId(value: string, name: string): void {
-    if (!value || !SAFE_ID.test(value)) throw new Error(`[LOOP_BLOCKED] invalid ${name}`);
-  }
-
-  private readRecordTimestamp(path: string, fallback: string): string {
-    // Artifact metadata is deliberately not embedded into user-authored content.
-    // Existing files retain their creation timestamp only when a sidecar is introduced later.
-    void path;
-    return fallback;
+    if (!value || !SAFE_ID.test(value)) {
+      throw new Error(`[LOOP_BLOCKED] invalid ${name}`);
+    }
   }
 }
