@@ -4,18 +4,22 @@ import type { RunRuntime } from './run-runtime';
 import { checkpointInputFingerprint, type CheckpointStore } from './checkpoint';
 import type { HumanApprovalDecision, HumanApprovalGate, HumanApprovalGateName, HumanApprovalProvider } from './human-approval';
 import { StageRegistry } from './stage-registry';
+import type { RunArtifactStore } from './artifact-store';
+import { EvidenceCompletionGate, type CompletionEvidence } from './completion-gate';
 
 export type ExecutionStage = 'GOAL_REVIEW' | 'PLAN' | 'IMPLEMENT' | 'VERIFY' | 'REVIEW' | 'FIX' | 'READY_FOR_CONFIRMATION';
-export interface StageResult { facts?: Partial<LoopRuntimeState['facts']>; checkpoint?: string; }
+export interface StageResult { facts?: Partial<LoopRuntimeState['facts']>; checkpoint?: string; evidence?: CompletionEvidence[]; }
 export interface StageExecutor { execute(stage: ExecutionStage, state: LoopRuntimeState): Promise<StageResult>; }
-export interface ExecutionRuntimeOptions { maxFixAttempts?: number; checkpointStore?: CheckpointStore; humanApprovalGate?: HumanApprovalGate; stageRegistry?: StageRegistry; }
+export interface ExecutionRuntimeOptions { maxFixAttempts?: number; checkpointStore?: CheckpointStore; humanApprovalGate?: HumanApprovalGate; stageRegistry?: StageRegistry; artifactStore?: Pick<RunArtifactStore, 'writeEvidence'>; completionGate?: EvidenceCompletionGate; }
 
-/** P2-3 Execution Runtime：阶段完成后持久化 checkpoint；重启后优先恢复 checkpoint，避免重复调用 Agent/Tool。 */
+/** P2-3/P2-4 Execution Runtime：阶段完成后持久化 checkpoint；DONE 必须通过 Evidence Completion Gate。 */
 export class ExecutionRuntime {
   private readonly maxFixAttempts: number;
   private readonly checkpointStore?: CheckpointStore;
   private readonly humanApprovalGate?: HumanApprovalGate;
   private readonly stageRegistry: StageRegistry;
+  private readonly artifactStore?: Pick<RunArtifactStore, 'writeEvidence'>;
+  private readonly completionGate: EvidenceCompletionGate;
 
   constructor(
     private readonly runs: RunRuntime,
@@ -28,6 +32,8 @@ export class ExecutionRuntime {
     this.checkpointStore = options.checkpointStore;
     this.humanApprovalGate = options.humanApprovalGate;
     this.stageRegistry = options.stageRegistry ?? new StageRegistry();
+    this.artifactStore = options.artifactStore;
+    this.completionGate = options.completionGate ?? new EvidenceCompletionGate();
     if (!Number.isInteger(this.maxFixAttempts) || this.maxFixAttempts < 1) throw new Error('[LOOP_BLOCKED] maxFixAttempts must be a positive integer');
   }
 
@@ -52,7 +58,21 @@ export class ExecutionRuntime {
     const inputFingerprint = checkpointInputFingerprint(runId, stage, state.policyRevision, state.facts as unknown as Record<string, unknown>);
     const result = await this.executor.execute(stage, state);
     if (result.facts) { this.updateFacts(runId, result.facts); state = this.runs.loadRun(runId); }
+    if (result.evidence) {
+      for (const evidence of result.evidence) {
+        if (evidence.runId !== runId) throw new Error('[LOOP_BLOCKED] evidence belongs to another run');
+        if (this.artifactStore) this.artifactStore.writeEvidence(runId, evidence.id, `${JSON.stringify(evidence, null, 2)}\n`);
+      }
+    }
     const next = this.stageRegistry.resolveNextStatus(state, stage);
+
+    if (next === 'DONE') {
+      const completion = this.completionGate.evaluate(state, result.evidence ?? []);
+      if (!completion.allowed) {
+        this.kernel.transition('BLOCKED');
+        throw new Error(`[LOOP_BLOCKED] ${completion.reason}`);
+      }
+    }
 
     if (this.checkpointStore) {
       this.checkpointStore.write({
@@ -79,13 +99,11 @@ export class ExecutionRuntime {
     }
   }
 
-  /** 统一处理 Run 级人工确认；结果必须持久化到 Runtime Facts。 */
   requestHumanApproval(runId: string, gate: HumanApprovalGateName, reason: string, provider: HumanApprovalProvider): Promise<HumanApprovalDecision> {
     if (!this.humanApprovalGate) throw new Error('[LOOP_BLOCKED] human approval gate is required');
     return this.humanApprovalGate.request(runId, gate, reason, provider);
   }
 
-  /** 在外部审批系统已经完成审批时，使用同一个 Gate 持久化结果。 */
   resolveHumanApproval(runId: string, gate: HumanApprovalGateName, decision: HumanApprovalDecision): LoopRuntimeState {
     if (!this.humanApprovalGate) throw new Error('[LOOP_BLOCKED] human approval gate is required');
     return this.humanApprovalGate.resolve(runId, gate, decision);
