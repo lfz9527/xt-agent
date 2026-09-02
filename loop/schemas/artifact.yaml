@@ -9,42 +9,37 @@ workspace:
 
 artifacts:
   runtime:
-    # Runtime 是项目级运行基础设施；每次 Run 的状态和 Policy Snapshot 独立存储。
+    # Runtime 基础设施；每次 Run 的状态、Snapshot、Mutation Journal 独立存储。
     directory: runtime
     runsDirectory: runtime/runs/<run-id>
     state: runtime/runs/<run-id>/state.yaml
     policySnapshot: runtime/runs/<run-id>/policy-snapshot.yaml
+    mutationJournal: runtime/runs/<run-id>/mutation-journal.jsonl
     history: runtime/history.jsonl
     locks: runtime/locks
   plans:
-    # 每次运行生成的执行计划。
     directory: plans
     filename: <run-id>.md
   specs:
-    # 每次运行生成的 Spec / PECS 产物。
     directory: specs/<run-id>
     filename: <spec-id>.pecs.md
   evidence:
-    # 每次运行产生的验证证据。
     directory: evidence/<run-id>
     filename: <evidence-id>.yaml
   reviews:
-    # 每次运行产生的 Review 结果。
     directory: reviews
     filename: <run-id>.md
 
 rules:
   # 所有运行产物必须通过 run-id 与一次 Loop 运行关联。
   requireRunIdAssociation: true
-  # Runtime 产物与项目 Trust / Permission 配置必须分离。
   runtimeCannotOwnProjectPolicy: true
-  # 产物路径不能扩散到项目根目录的其他固定对象。
   workspaceRootIsCanonical: true
-  # 多个 Run 可以并行；只对共享资源建立 Resource Lock。
+  # 多个 Run 可以并行；Run 不是项目级互斥锁。
   runIsNotProjectLock: true
-  # Capability 执行必须绑定 Policy Snapshot。
   executionRequiresPolicySnapshot: true
-  # 执行前必须验证 Policy Revision 没有变化。
   requirePolicyRevisionMatch: true
-  # 状态转移必须持有当前 Run 的 State Lock，避免 read/validate/write 竞争。
+  # State 与 Mutation 都必须具备可追溯的 Run 级持久化记录。
   stateTransitionRequiresRunLock: true
+  mutationRequiresGitBaseline: true
+  mutationRequiresJournal: true
