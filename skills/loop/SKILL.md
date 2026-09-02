@@ -7,6 +7,34 @@ description: Run the project Loop v1 workflow. This skill is ONLY activated by a
 
 Loop 是通用的、有状态的 Agent 任务控制协议。Agent 负责工作；Loop 负责生命周期、Policy Resolution、Permission、Trust、Approval、Safety、Resource Governance 和 Evidence。
 
+## P2-11 Run Event / Observer API
+
+Observer 是 Loop Runtime 的只读事件观察入口，用于 UI、CLI、Scheduler 和其他外部消费者观察 Run。
+
+```text
+Runtime Audit / Unified Audit Timeline
+                 ↓
+          Run Event Observer
+           ↙      ↓      ↘
+         UI      CLI    Scheduler
+```
+
+Observer 只提供两类能力：
+
+- `list(runId)`：通过 Audit Replay 查询已经持久化的历史 Runtime Event。
+- `subscribe(runId, observer)`：订阅该 Run 的新事件，并返回取消订阅函数。
+
+观察范围与 Unified Audit Timeline 保持一致：`STAGE`、`CHECKPOINT`、`EVIDENCE`、`RESOURCE_MUTATION`、`STATE_TRANSITION`。
+
+Observer 不得：
+
+- 直接读写 `.loop/runtime/runs/<run-id>/state.yaml`。
+- 修改 Runtime State 或 Runtime Facts。
+- 实现第二套 State Machine、Policy、Permission、Trust、Approval 或 Evidence 决策。
+- 创建新的事件事实源或复制一套 Run 状态。
+
+Runtime Timeline 是唯一事件产生边界；Observer 只是消费方。
+
 ## P2-10 Scheduler Adapter
 
 Scheduler 是 Loop Runtime 的时间入口，不是 Runtime 本身。
@@ -73,6 +101,10 @@ Skill Adapter          CLI Adapter          Scheduler Adapter
                          RunService
                              ↓
                          Loop Runtime
+                             ↑
+                      Event Observer
+                         ↗       ↖
+                       UI        CLI
 ```
 
 所有 Adapter 都只能表达入口意图；Runtime 才是生命周期、状态、权限、审批和安全边界的唯一权威。
