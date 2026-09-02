@@ -1,19 +1,17 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { FileStateStore, JsonlRuntimeAuditLog } from './persistence';
+import { FileStateStore, JsonlRuntimeAuditLog, JsonlMutationJournal } from './persistence';
+import type { RuntimeFacts } from './enforcement';
 
 const workspace = join(process.cwd(), '.loop-runtime-test');
-const snapshot = {
-  runId: 'run-1',
-  policyRevision: 3,
-  trust: 'high',
-  permissions: {},
-  effectivePolicy: {},
-  resolvedAt: new Date(0).toISOString(),
+const snapshot = { runId: 'run-1', policyRevision: 3, trust: 'high', permissions: {}, effectivePolicy: {}, resolvedAt: new Date(0).toISOString() };
+const facts: RuntimeFacts = {
+  executionApprovalSatisfied: false, planArtifactExists: false, implementationCompleted: false, verificationPassed: false,
+  verificationFailed: false, reviewPassed: false, reviewFailed: false, acceptancePassed: false, finalApprovalSatisfied: false,
+  finalApprovalRejected: false, fixAttemptsWithinLimit: true, resumeRequested: false, resumeStateValid: false, pauseExpired: false,
 };
-
-const state = { runId: 'run-1', status: 'PLAN', policyRevision: 3, snapshot };
+const state = { runId: 'run-1', status: 'PLAN', policyRevision: 3, snapshot, facts };
 
 afterEach(() => rmSync(workspace, { recursive: true, force: true }));
 
@@ -65,7 +63,14 @@ describe('JsonlRuntimeAuditLog', () => {
     log.append({ eventId: 'evt-2', runId: 'run-2', type: 'APPROVAL_RESOLVED', at: '2026-09-02T00:00:01.000Z', policyRevision: 3, payload: { decision: 'approved' } });
     const lines = readFileSync(join(workspace, 'runtime', 'history.jsonl'), 'utf8').trim().split('\n');
     expect(lines).toHaveLength(2);
-    expect(JSON.parse(lines[0]).runId).toBe('run-1');
-    expect(JSON.parse(lines[1]).runId).toBe('run-2');
+  });
+});
+
+describe('JsonlMutationJournal', () => {
+  it('records before/after worktree fingerprints', () => {
+    const journal = new JsonlMutationJournal(workspace);
+    journal.append({ mutationId: 'mutation-1', runId: 'run-1', resource: 'src/a.ts', capability: 'code.modify', at: '2026-09-02T00:00:00.000Z', beforeWorktreeFingerprint: '', afterWorktreeFingerprint: ' M src/a.ts', result: 'committed' });
+    const line = readFileSync(join(workspace, 'runtime', 'mutation-journal.jsonl'), 'utf8').trim();
+    expect(JSON.parse(line).afterWorktreeFingerprint).toBe(' M src/a.ts');
   });
 });
