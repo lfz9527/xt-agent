@@ -45,6 +45,9 @@ export class ExecutionRuntime {
       state = this.runs.loadRun(runId);
     }
 
+    // checkpoint fingerprint 必须绑定到 Agent/Tool 执行前的输入状态。
+    const inputFingerprint = checkpointInputFingerprint(runId, stage, state.policyRevision, state.facts as unknown as Record<string, unknown>);
+
     const result = await this.executor.execute(stage, state);
     if (result.facts) { this.updateFacts(runId, result.facts); state = this.runs.loadRun(runId); }
     const next = this.nextStatus(state, stage);
@@ -55,7 +58,7 @@ export class ExecutionRuntime {
         runId,
         stage,
         checkpointId: result.checkpoint ?? randomUUID(),
-        inputFingerprint: checkpointInputFingerprint(runId, stage, state.policyRevision, state.facts as unknown as Record<string, unknown>),
+        inputFingerprint,
         facts: state.facts as unknown as Record<string, unknown>,
         nextStatus: next,
         completedAt: new Date().toISOString(),
@@ -88,13 +91,8 @@ export class ExecutionRuntime {
     return this.runs.loadRun(state.runId);
   }
 
-  private updateFacts(runId: string, facts: Partial<LoopRuntimeState['facts']>): void {
-    const store = this.stateStoreFactory(runId); const state = store.read();
-    store.write({ ...state, facts: { ...state.facts, ...facts } });
-  }
-  private stageFor(status: string): ExecutionStage | undefined {
-    return ({ INIT: 'GOAL_REVIEW', GOAL_REVIEW: 'GOAL_REVIEW', PLAN: 'PLAN', IMPLEMENT: 'IMPLEMENT', VERIFY: 'VERIFY', REVIEW: 'REVIEW', FIX: 'FIX' } as Record<string, ExecutionStage>)[status];
-  }
+  private updateFacts(runId: string, facts: Partial<LoopRuntimeState['facts']>): void { const store = this.stateStoreFactory(runId); const state = store.read(); store.write({ ...state, facts: { ...state.facts, ...facts } }); }
+  private stageFor(status: string): ExecutionStage | undefined { return ({ INIT: 'GOAL_REVIEW', GOAL_REVIEW: 'GOAL_REVIEW', PLAN: 'PLAN', IMPLEMENT: 'IMPLEMENT', VERIFY: 'VERIFY', REVIEW: 'REVIEW', FIX: 'FIX' } as Record<string, ExecutionStage>)[status]; }
   private nextStatus(state: LoopRuntimeState, stage: ExecutionStage): string | undefined {
     switch (stage) {
       case 'GOAL_REVIEW': return state.status === 'INIT' ? 'GOAL_REVIEW' : 'WAITING_FOR_GOAL_CONFIRMATION';
