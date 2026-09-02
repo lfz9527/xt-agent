@@ -13,11 +13,11 @@ const facts: RuntimeFacts = {
   executionApprovalSatisfied: false, planArtifactExists: false, implementationCompleted: false,
   verificationPassed: false, verificationFailed: false, reviewPassed: false, reviewFailed: false,
   acceptancePassed: false, finalApprovalSatisfied: false, finalApprovalRejected: false,
-  fixAttemptsWithinLimit: true, resumeRequested: false, resumeStateValid: false, pauseExpired: false,
+  fixAttempts: 0, fixAttemptsWithinLimit: true, resumeRequested: false, resumeStateValid: false, pauseExpired: false,
 };
 
 function fixture() {
-  const state: LoopRuntimeState = { runId: 'run-1', status: 'IMPLEMENT', policyRevision: 3, snapshot, facts };
+  const state: LoopRuntimeState = { runId: 'run-1', status: 'IMPLEMENT', policyRevision: 3, snapshot, facts: { ...facts } };
   const store = { read: vi.fn(() => state), write: vi.fn((next: LoopRuntimeState) => Object.assign(state, next)) };
   const policy = { currentRevision: vi.fn(() => 3) };
   const lock = new RuntimeResourceLock('/tmp/loop-kernel-test');
@@ -64,14 +64,12 @@ describe('LoopRuntimeKernel', () => {
     expect(() => kernel.transition('VERIFY')).toThrow('LOOP_BLOCKED');
     expect(store.write).not.toHaveBeenCalled();
   });
-
   it('never executes a capability after an explicit deny', async () => {
     const { kernel } = fixture();
     const execute = vi.fn(async () => 'must-not-run');
     await expect(kernel.executeCapability({ capability: 'filesystem.write', capabilityDecision: 'deny', approvalDecision: 'approved' }, { execute })).rejects.toThrow('[LOOP_DENY]');
     expect(execute).not.toHaveBeenCalled();
   });
-
   it('does not execute when approval is rejected and records both approval events', async () => {
     const { store, policy } = fixture();
     const approval = { request: vi.fn(async () => 'rejected' as const) };
@@ -82,7 +80,6 @@ describe('LoopRuntimeKernel', () => {
     expect(execute).not.toHaveBeenCalled();
     expect(audit.append).toHaveBeenCalledTimes(3);
   });
-
   it('releases the state lock when a guarded transition fails', () => {
     const { kernel, state } = fixture();
     expect(() => kernel.transition('VERIFY')).not.toThrow();
@@ -92,14 +89,12 @@ describe('LoopRuntimeKernel', () => {
     state.facts.implementationCompleted = true;
     expect(() => kernel.transition('VERIFY')).not.toThrow();
   });
-
   it('does not mutate a resource without a git baseline and expected fingerprint', async () => {
     const { kernel } = fixture();
     const execute = vi.fn(async () => 'must-not-run');
     await expect(kernel.mutateResource({ resource: 'src/**/*.ts', kind: 'mutable', allowedCapabilities: ['code.modify'] }, 'code.modify', 'src/app.ts', { execute })).rejects.toThrow('[LOOP_BLOCKED]');
     expect(execute).not.toHaveBeenCalled();
   });
-
   it('requires a mutation journal before entering the resource mutation path', async () => {
     const { state, store, policy } = fixture();
     const baseline = captureGitBaseline(process.cwd());
@@ -110,7 +105,6 @@ describe('LoopRuntimeKernel', () => {
     await expect(kernel.mutateResource({ resource: 'src/**/*.ts', kind: 'mutable', allowedCapabilities: ['code.modify'] }, 'code.modify', 'src/app.ts', { execute })).rejects.toThrow('mutation journal is required');
     expect(execute).not.toHaveBeenCalled();
   });
-
   it('rejects a resource mutation by policy before checking mutation preconditions or acquiring the lock', async () => {
     const { state, policy } = fixture();
     const baseline = captureGitBaseline(process.cwd());
@@ -125,12 +119,14 @@ describe('LoopRuntimeKernel', () => {
     expect(execute).not.toHaveBeenCalled();
     expect(journal.append).not.toHaveBeenCalled();
   });
-
   it('journals a failed resource mutation and does not write runtime state', async () => {
     // 使用独立的临时 Git 仓库，避免并行测试产生的工作区文件变化污染本测试的 baseline。
     const gitCwd = mkdtempSync(join(tmpdir(), 'loop-kernel-git-'));
     try {
       execFileSync('git', ['init'], { cwd: gitCwd, stdio: 'ignore' });
+      execFileSync('git', ['config', 'user.email', 'loop-test@example.com'], { cwd: gitCwd, stdio: 'ignore' });
+      execFileSync('git', ['config', 'user.name', 'Loop Test'], { cwd: gitCwd, stdio: 'ignore' });
+      execFileSync('git', ['commit', '--allow-empty', '-m', 'test baseline'], { cwd: gitCwd, stdio: 'ignore' });
       const { store, state, policy } = fixture();
       const baseline = captureGitBaseline(gitCwd);
       state.gitBaseline = baseline;
