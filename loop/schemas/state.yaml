@@ -82,42 +82,52 @@ stateRules:
     allowedNext: [WAITING_FOR_GOAL_CONFIRMATION, BLOCKED]
 
   WAITING_FOR_GOAL_CONFIRMATION:
-    allowedNext: [PLAN, BLOCKED]
+    allowedNext: [PLAN, BLOCKED, PAUSED]
     guards:
       PLAN:
         - approval.beforeExecution == approved
         - policy.policyRevision == currentPolicyRevision
+      PAUSED:
+        - pause.reason in [approval_required, external_dependency, user_requested_pause]
 
   PLAN:
-    allowedNext: [IMPLEMENT, BLOCKED]
+    allowedNext: [IMPLEMENT, BLOCKED, PAUSED]
     guards:
       IMPLEMENT:
         - plan.artifact exists
+      PAUSED:
+        - pause.reason in [approval_required, external_dependency, user_requested_pause]
 
   IMPLEMENT:
-    allowedNext: [VERIFY, BLOCKED]
+    allowedNext: [VERIFY, BLOCKED, PAUSED]
     guards:
       VERIFY:
         - implementation.completed == true
+      PAUSED:
+        - pause.reason in [approval_required, external_dependency, user_requested_pause]
 
   VERIFY:
-    allowedNext: [REVIEW, FIX, BLOCKED]
+    allowedNext: [REVIEW, FIX, BLOCKED, PAUSED]
     guards:
       REVIEW:
         - verification.status == passed
       FIX:
         - verification.status == failed
+      PAUSED:
+        - pause.reason in [approval_required, external_dependency, user_requested_pause]
 
   REVIEW:
-    allowedNext: [READY_FOR_CONFIRMATION, FIX, BLOCKED]
+    allowedNext: [READY_FOR_CONFIRMATION, FIX, BLOCKED, PAUSED]
     guards:
       READY_FOR_CONFIRMATION:
         - review.status == passed
       FIX:
         - review.status == failed
+      PAUSED:
+        - pause.reason in [approval_required, external_dependency, user_requested_pause]
 
   READY_FOR_CONFIRMATION:
-    allowedNext: [DONE, FIX, BLOCKED]
+    allowedNext: [DONE, FIX, BLOCKED, PAUSED]
     guards:
       DONE:
         - acceptanceCriteria.allPassed == true
@@ -127,12 +137,43 @@ stateRules:
         - policy.policyRevision == currentPolicyRevision
       FIX:
         - approval.beforeFinalize == rejected
+      PAUSED:
+        - pause.reason in [approval_required, external_dependency, user_requested_pause]
 
   FIX:
-    allowedNext: [IMPLEMENT, BLOCKED]
+    allowedNext: [IMPLEMENT, BLOCKED, PAUSED]
     guards:
       IMPLEMENT:
         - fixAttempts <= maxFixAttempts
+      PAUSED:
+        - pause.reason in [approval_required, external_dependency, user_requested_pause]
+
+  PAUSED:
+    allowedNext: [WAITING_FOR_GOAL_CONFIRMATION, PLAN, IMPLEMENT, VERIFY, REVIEW, READY_FOR_CONFIRMATION, FIX, BLOCKED]
+    guards:
+      WAITING_FOR_GOAL_CONFIRMATION:
+        - resumeRequested == true
+        - resumeStateValid == true
+      PLAN:
+        - resumeRequested == true
+        - resumeStateValid == true
+      IMPLEMENT:
+        - resumeRequested == true
+        - resumeStateValid == true
+      VERIFY:
+        - resumeRequested == true
+        - resumeStateValid == true
+      REVIEW:
+        - resumeRequested == true
+        - resumeStateValid == true
+      READY_FOR_CONFIRMATION:
+        - resumeRequested == true
+        - resumeStateValid == true
+      FIX:
+        - resumeRequested == true
+        - resumeStateValid == true
+      BLOCKED:
+        - pauseExpired == true
 
   DONE:
     allowedNext: []
@@ -140,9 +181,13 @@ stateRules:
   BLOCKED:
     allowedNext: []
 
-# PAUSED 是可恢复等待态，但属于 Runtime 扩展状态；进入条件由运行时策略定义。
-# P0 阶段不允许将 BLOCKED 当作可恢复状态。
+# PAUSED 是可恢复等待态；恢复必须由 Runtime 校验原状态、Policy Revision 和产物完整性。
 paused:
   terminal: false
   resumeInPlace: true
   reasons: [approval_required, external_dependency, user_requested_pause]
+
+# BLOCKED 是安全终止态，不允许原地 Resume。
+blocked:
+  terminal: true
+  resumeInPlace: false
