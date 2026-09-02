@@ -1,162 +1,82 @@
-# Loop 引擎默认配置。
-# 本文件属于 Loop 引擎，不属于具体项目。
-# 项目级配置统一由项目根目录唯一的 `.loop` 文件提供。
+# Loop 引擎定义配置。
+# 本文件只描述引擎能力、默认限制和固定安全规则，不保存具体项目配置。
+# 每个项目的实际 Loop 配置统一来自项目根目录唯一的 `.loop` 文件。
 version: 1
 
-loop:
-  # 单次 Loop 运行允许执行的最大迭代次数。
+engine:
+  # 单次 Loop 允许的最大迭代次数。
   maxIterations: 10
-  # 单次 Loop 运行允许执行的最大 FIX 修复次数。
+  # 单次 Loop 允许的最大修复次数。
   maxFixAttempts: 5
   # 同一失败连续出现的最大次数。
   maxSameFailure: 2
 
-state:
-  # 是否启用 Runtime 状态持久化。
-  enabled: true
-  # Runtime 状态默认路径；不属于项目级配置。
-  path: .loop-state.yaml
-
-# Trust 只定义等级语义，不保存任何项目当前值。
-# 项目当前 Trust 必须从项目根目录唯一的 `.loop` 文件读取。
 trust:
+  # Trust 是项目级属性，这里只定义等级的通用审批语义。
   levels:
     low:
-      approval:
-        # LOW：执行前需要用户确认。
-        beforeExecution: required
-        # LOW：完成前需要用户确认。
-        beforeFinalize: required
+      # LOW 默认要求执行前人工审批。
+      beforeExecution: required
+      # LOW 默认要求完成前人工审批。
+      beforeFinalize: required
     medium:
-      approval:
-        # MEDIUM：执行前自动通过。
-        beforeExecution: automatic
-        # MEDIUM：完成前需要用户确认。
-        beforeFinalize: required
+      # MEDIUM 默认允许执行前自动通过。
+      beforeExecution: automatic
+      # MEDIUM 默认要求完成前人工审批。
+      beforeFinalize: required
     high:
-      approval:
-        # HIGH：执行前自动通过。
-        beforeExecution: automatic
-        # HIGH：完成前自动通过。
-        beforeFinalize: automatic
+      # HIGH 默认允许执行前自动通过。
+      beforeExecution: automatic
+      # HIGH 默认允许完成前自动通过。
+      beforeFinalize: automatic
     full:
-      approval:
-        # FULL：执行前自动通过。
-        beforeExecution: automatic
-        # FULL：完成前自动通过。
-        beforeFinalize: automatic
-
-# 引擎默认权限。
-# 项目 `.loop` 可以覆盖，但只能收紧，不能突破安全边界。
-permissions:
-  approval:
-    # 未覆盖时跟随项目 Trust Level。
-    beforeExecution: inherit
-    # 未覆盖时跟随项目 Trust Level。
-    beforeFinalize: inherit
-  filesystem:
-    # 默认允许读取项目文件。
-    read: allow
-    # 默认允许修改项目文件。
-    write: allow
-  shell:
-    # 默认允许普通 Shell 命令。
-    execute: allow
-    # 高风险 Shell 命令默认需要独立确认。
-    dangerous: confirm
-  git:
-    # 默认允许读取 Git 信息。
-    read: allow
-    # 创建 Commit 默认需要确认。
-    commit: confirm
-    # Push 默认需要确认。
-    push: confirm
-  network:
-    # 网络请求默认需要确认。
-    request: confirm
+      # FULL 默认允许执行前自动通过。
+      beforeExecution: automatic
+      # FULL 默认允许完成前自动通过。
+      beforeFinalize: automatic
 
 security:
-  # 高风险操作不能仅因 Trust 提升而自动放行。
+  # 高风险能力必须经过独立安全策略判断，不能仅靠 Trust 放行。
   highRiskRequiresIndependentPolicy: true
-  # 任意显式 deny 优先于 Trust 和其他默认策略。
+  # 任意显式 deny 都优先于其他允许规则。
   denyAlwaysWins: true
 
-# Git 默认行为。
-git:
-  # 是否在 INIT 记录 Git 基线 Commit。
-  captureBaselineAtInit: true
-  # 是否记录 INIT 时所在分支。
-  recordBranch: true
-  # 工作区有未提交修改时是否阻止 INIT。
-  requireCleanBaseline: false
-  # 是否在完成前记录相对基线的 Diff。
-  captureDiffBeforeCompletion: true
-
-evidence:
-  # 是否启用 Evidence。
-  enabled: true
-  # Runtime Evidence 默认路径；不是项目配置。
-  path: .loop-evidence/
-  # 是否要求 Evidence 关联 Acceptance Criterion。
-  requireAcceptanceCriterionAssociation: true
-  # 是否保留失败 Evidence。
-  preserveFailures: true
-
-states:
-  # Loop 初始化。
-  - INIT
-  # 目标评审。
-  - GOAL_REVIEW
-  # 执行前审批 Gate。
-  - WAITING_FOR_GOAL_CONFIRMATION
-  # 任务规划。
-  - PLAN
-  # 实现。
-  - IMPLEMENT
-  # 验证。
-  - VERIFY
-  # Review。
-  - REVIEW
-  # 完成前审批 Gate。
-  - READY_FOR_CONFIRMATION
-  # 修复。
-  - FIX
-  # 完成。
-  - DONE
-  # 阻断。
-  - BLOCKED
-
-confirmation:
-  goal:
-    # 是否启用 Goal Gate；人工确认与否由项目 Trust/Permission 决定。
-    required: true
-    # 是否必须在 IMPLEMENT 前通过 Goal Gate。
-    beforeImplementation: true
-  result:
-    # 是否启用 Final Gate；人工确认与否由项目 Trust/Permission 决定。
-    required: true
-    # 是否必须在 DONE 前通过 Final Gate。
-    beforeDone: true
-
 workflow:
+  # Loop 的固定生命周期状态集合。
+  states:
+    - INIT
+    - GOAL_REVIEW
+    - WAITING_FOR_GOAL_CONFIRMATION
+    - PLAN
+    - IMPLEMENT
+    - VERIFY
+    - REVIEW
+    - READY_FOR_CONFIRMATION
+    - FIX
+    - DONE
+    - BLOCKED
   testFirst:
-    # 是否启用 Test First。
+    # 是否启用 Test First 规则。
     enabled: true
-    # Test First 时是否必须先处理测试文件。
+    # Test First 时是否要求测试文件先于实现文件处理。
     testFilesBeforeImplementation: true
     # Test First 阶段是否禁止修改实现文件。
     implementationModificationBlockedDuringTestPhase: true
-    # 是否要求实现前存在失败测试。
+    # 是否强制要求实现前出现可执行的失败测试。
     requireExecutableRedWithoutImplementation: false
 
 completion:
-  # 是否启用 Final Gate。
-  enableFinalApprovalGate: true
-  # 是否要求全部 Acceptance Criteria 满足。
+  # 是否启用最终完成审批 Gate。
+  finalApprovalGateEnabled: true
+  # 是否要求所有验收标准满足。
   requireAllAcceptanceCriteria: true
-  # Agent 自己的完成声明不能作为 Evidence。
+  # Agent 自己声称完成不能作为 Evidence。
   agentClaimIsEvidence: false
-  # 是否要求验证通过。
+  # 是否要求 Verification 通过。
   requireVerificationPass: true
   # 是否要求 Review 通过。
   requireReviewPass: true
+
+persistence:
+  # Runtime 持久化由宿主运行时负责，项目配置不规定具体文件或目录。
+  runtimeManaged: true
