@@ -82,8 +82,9 @@ describe('LoopRuntimeKernel', () => {
   });
   it('releases the state lock when a guarded transition fails', () => {
     const { kernel, state } = fixture();
+    state.facts.implementationCompleted = true;
     expect(() => kernel.transition('VERIFY')).not.toThrow();
-    state.facts.implementationCompleted = false;
+    state.facts.verificationPassed = false;
     expect(() => kernel.transition('REVIEW')).toThrow('LOOP_BLOCKED');
     state.status = 'IMPLEMENT';
     state.facts.implementationCompleted = true;
