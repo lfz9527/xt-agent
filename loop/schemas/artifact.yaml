@@ -1,7 +1,7 @@
 # Loop Runtime 产物存储 Schema。
 # 本文件定义项目 `.loop/` 工作区内各类运行产物的标准目录和命名规则。
 # 它不保存具体项目 Trust、Permission 或某次运行的实际状态。
-version: 1
+version: 2
 
 workspace:
   # 每个项目的 Loop 工作区固定为项目根目录下的 `.loop/`。
@@ -9,11 +9,13 @@ workspace:
 
 artifacts:
   runtime:
-    # 一次 Loop Runtime 的状态与运行历史。
+    # Runtime 是项目级运行基础设施；每次 Run 的状态和 Policy Snapshot 独立存储。
     directory: runtime
-    state: state.yaml
-    history: history.jsonl
-    policySnapshot: policy-snapshot.yaml
+    runsDirectory: runtime/runs/<run-id>
+    state: runtime/runs/<run-id>/state.yaml
+    policySnapshot: runtime/runs/<run-id>/policy-snapshot.yaml
+    history: runtime/history.jsonl
+    locks: runtime/locks
   plans:
     # 每次运行生成的执行计划。
     directory: plans
@@ -38,7 +40,11 @@ rules:
   runtimeCannotOwnProjectPolicy: true
   # 产物路径不能扩散到项目根目录的其他固定对象。
   workspaceRootIsCanonical: true
+  # 多个 Run 可以并行；只对共享资源建立 Resource Lock。
+  runIsNotProjectLock: true
   # Capability 执行必须绑定 Policy Snapshot。
   executionRequiresPolicySnapshot: true
   # 执行前必须验证 Policy Revision 没有变化。
   requirePolicyRevisionMatch: true
+  # 状态转移必须持有当前 Run 的 State Lock，避免 read/validate/write 竞争。
+  stateTransitionRequiresRunLock: true
