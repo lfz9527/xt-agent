@@ -1,16 +1,28 @@
+# Loop 证据记录的 Schema 定义。
+# 项目级证据文件默认保存于 <project-root>/.loop/evidence/<id>.yaml。
+
+# Schema 版本号，用于未来兼容不同版本的证据结构。
 version: 1
 
-# Project-local evidence record: <project-root>/.loop/evidence/<id>.yaml
-
+# 当前证据记录的唯一 ID。
 id: <evidence-id>
+# 当前证据对应的 Acceptance Criterion 唯一标识。
 criterion: <acceptance-criterion-id>
+# 证据类型：test 测试、command 命令、static 静态检查、runtime 运行时检查、review Review、manual 人工检查、other 其他。
 type: test | command | static | runtime | review | manual | other
+# 证据结果：passed 通过、failed 失败、skipped 跳过。
 status: passed | failed | skipped
+# Agent 对当前证据可信度的评估：high 高、medium 中、low 低。
 confidence: high | medium | low
 
+# 产生该证据时执行的命令；不涉及命令时为空。
 command: null
+# 对验证内容和结果的简要说明。
 summary: <what was verified>
+# 命令或验证产生的原始输出；不需要保存时为空。
 output: null
+# 与证据关联的文件、报告或其他产物路径；没有关联产物时为空。
 artifact: null
 
+# 证据记录产生的时间戳。
 recordedAt: <timestamp>
