@@ -6,13 +6,14 @@ import type { HumanApprovalDecision, HumanApprovalGate, HumanApprovalGateName, H
 import { StageRegistry } from './stage-registry';
 import type { RunArtifactStore } from './artifact-store';
 import { EvidenceCompletionGate, type CompletionEvidence } from './completion-gate';
+import type { RunAuditTimeline } from './audit-timeline';
 
 export type ExecutionStage = 'GOAL_REVIEW' | 'PLAN' | 'IMPLEMENT' | 'VERIFY' | 'REVIEW' | 'FIX' | 'READY_FOR_CONFIRMATION';
 export interface StageResult { facts?: Partial<LoopRuntimeState['facts']>; checkpoint?: string; evidence?: CompletionEvidence[]; }
 export interface StageExecutor { execute(stage: ExecutionStage, state: LoopRuntimeState): Promise<StageResult>; }
-export interface ExecutionRuntimeOptions { maxFixAttempts?: number; checkpointStore?: CheckpointStore; humanApprovalGate?: HumanApprovalGate; stageRegistry?: StageRegistry; artifactStore?: Pick<RunArtifactStore, 'writeEvidence'>; completionGate?: EvidenceCompletionGate; }
+export interface ExecutionRuntimeOptions { maxFixAttempts?: number; checkpointStore?: CheckpointStore; humanApprovalGate?: HumanApprovalGate; stageRegistry?: StageRegistry; artifactStore?: Pick<RunArtifactStore, 'writeEvidence'>; completionGate?: EvidenceCompletionGate; auditTimeline?: RunAuditTimeline; }
 
-/** P2-3/P2-4 Execution Runtime：阶段完成后持久化 checkpoint；DONE 必须通过 Evidence Completion Gate。 */
+/** P2-3/P2-4/P2-5 Execution Runtime：阶段、checkpoint、evidence 和完成决策均进入统一 Run Audit Timeline。 */
 export class ExecutionRuntime {
   private readonly maxFixAttempts: number;
   private readonly checkpointStore?: CheckpointStore;
@@ -20,6 +21,7 @@ export class ExecutionRuntime {
   private readonly stageRegistry: StageRegistry;
   private readonly artifactStore?: Pick<RunArtifactStore, 'writeEvidence'>;
   private readonly completionGate: EvidenceCompletionGate;
+  private readonly auditTimeline?: RunAuditTimeline;
 
   constructor(
     private readonly runs: RunRuntime,
@@ -34,6 +36,7 @@ export class ExecutionRuntime {
     this.stageRegistry = options.stageRegistry ?? new StageRegistry();
     this.artifactStore = options.artifactStore;
     this.completionGate = options.completionGate ?? new EvidenceCompletionGate();
+    this.auditTimeline = options.auditTimeline;
     if (!Number.isInteger(this.maxFixAttempts) || this.maxFixAttempts < 1) throw new Error('[LOOP_BLOCKED] maxFixAttempts must be a positive integer');
   }
 
@@ -56,12 +59,21 @@ export class ExecutionRuntime {
     }
 
     const inputFingerprint = checkpointInputFingerprint(runId, stage, state.policyRevision, state.facts as unknown as Record<string, unknown>);
-    const result = await this.executor.execute(stage, state);
+    this.auditTimeline?.stage(runId, state.policyRevision, stage, 'started');
+    let result: StageResult;
+    try {
+      result = await this.executor.execute(stage, state);
+      this.auditTimeline?.stage(runId, state.policyRevision, stage, 'completed');
+    } catch (error) {
+      this.auditTimeline?.stage(runId, state.policyRevision, stage, 'failed');
+      throw error;
+    }
     if (result.facts) { this.updateFacts(runId, result.facts); state = this.runs.loadRun(runId); }
     if (result.evidence) {
       for (const evidence of result.evidence) {
         if (evidence.runId !== runId) throw new Error('[LOOP_BLOCKED] evidence belongs to another run');
         if (this.artifactStore) this.artifactStore.writeEvidence(runId, evidence.id, `${JSON.stringify(evidence, null, 2)}\n`);
+        this.auditTimeline?.evidence(runId, state.policyRevision, evidence);
       }
     }
     const next = this.stageRegistry.resolveNextStatus(state, stage);
@@ -75,16 +87,18 @@ export class ExecutionRuntime {
     }
 
     if (this.checkpointStore) {
+      const checkpointId = result.checkpoint ?? randomUUID();
       this.checkpointStore.write({
         schemaVersion: 1,
         runId,
         stage,
-        checkpointId: result.checkpoint ?? randomUUID(),
+        checkpointId,
         inputFingerprint,
         facts: state.facts as unknown as Record<string, unknown>,
         nextStatus: next,
         completedAt: new Date().toISOString(),
       });
+      this.auditTimeline?.checkpoint(runId, state.policyRevision, checkpointId, stage, next);
     }
     if (next) this.kernel.transition(next);
     if (next && this.checkpointStore) this.checkpointStore.clear(runId);
@@ -121,6 +135,7 @@ export class ExecutionRuntime {
     const expected = checkpointInputFingerprint(state.runId, stage, state.policyRevision, state.facts as unknown as Record<string, unknown>);
     if (checkpoint.inputFingerprint !== expected) throw new Error('[LOOP_BLOCKED] execution checkpoint input fingerprint does not match runtime state');
     this.stateStoreFactory(state.runId).write({ ...state, facts: { ...state.facts, ...checkpoint.facts } });
+    this.auditTimeline?.checkpoint(state.runId, state.policyRevision, checkpoint.checkpointId, stage, checkpoint.nextStatus);
     if (checkpoint.nextStatus) this.kernel.transition(checkpoint.nextStatus);
     this.checkpointStore.clear(state.runId);
     return this.runs.loadRun(state.runId);
