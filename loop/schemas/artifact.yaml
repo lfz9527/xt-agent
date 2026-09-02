@@ -13,6 +13,7 @@ artifacts:
     directory: runtime
     state: state.yaml
     history: history.jsonl
+    policySnapshot: policy-snapshot.yaml
   plans:
     # 每次运行生成的执行计划。
     directory: plans
@@ -37,3 +38,7 @@ rules:
   runtimeCannotOwnProjectPolicy: true
   # 产物路径不能扩散到项目根目录的其他固定对象。
   workspaceRootIsCanonical: true
+  # Capability 执行必须绑定 Policy Snapshot。
+  executionRequiresPolicySnapshot: true
+  # 执行前必须验证 Policy Revision 没有变化。
+  requirePolicyRevisionMatch: true
