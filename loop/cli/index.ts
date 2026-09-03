@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { pathToFileURL } from 'node:url';
 import { runAgentCommand } from './agent';
 import { createDefaultAgentRuntimeService } from './default-agent-service';
 import { runApproveCommand, runRejectCommand } from './approval';
@@ -35,6 +36,6 @@ export async function runCli(argv: string[] = process.argv.slice(2), services: C
   return 2;
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   runCli().then((exitCode) => { process.exitCode = exitCode; });
 }
