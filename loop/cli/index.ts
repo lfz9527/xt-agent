@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { runAgentCommand } from './agent';
+import { createDefaultAgentRuntimeService } from './default-agent-service';
 import { runApproveCommand, runRejectCommand } from './approval';
 import { runReplayCommand } from './replay';
 import { runResumeCommand } from './resume';
@@ -20,7 +21,10 @@ export interface CliServices {
 export async function runCli(argv: string[] = process.argv.slice(2), services: CliServices = {}): Promise<number> {
   const [command, ...args] = argv;
 
-  if (command === 'agent') return (await runAgentCommand(args, { service: services.agent })).exitCode;
+  if (command === 'agent') {
+    const agent = services.agent ?? createDefaultAgentRuntimeService();
+    return (await runAgentCommand(args, { service: agent })).exitCode;
+  }
   if (command === 'replay') return runReplayCommand(args, { service: services.replay }).exitCode;
   if (command === 'run') return (await runRunCommand(args, { service: services.run })).exitCode;
   if (command === 'resume') return (await runResumeCommand(args, { service: services.resume })).exitCode;
