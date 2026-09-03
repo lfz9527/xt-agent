@@ -1,4 +1,4 @@
-import { execFileSync, spawn } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -7,28 +7,6 @@ import { describe, expect, it } from 'vitest';
 
 const loopRoot = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const bin = join(loopRoot, 'cli', 'bin.mjs');
-
-function runAgent(cwd: string, ...args: string[]): { status: number; stdout: string; stderr: string } {
-  const child = spawn(process.execPath, [bin, 'agent', ...args], {
-    cwd,
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
-  let stdout = '';
-  let stderr = '';
-  child.stdout.setEncoding('utf8');
-  child.stderr.setEncoding('utf8');
-  child.stdout.on('data', (chunk) => { stdout += chunk; });
-  child.stderr.on('data', (chunk) => { stderr += chunk; });
-
-  return (() => {
-    const result = execFileSync(process.execPath, [bin, 'agent', ...args], {
-      cwd,
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-    return { status: 0, stdout: result, stderr: '' };
-  })();
-}
 
 function runAgentSync(cwd: string, ...args: string[]): { status: number; stdout: string; stderr: string } {
   try {
