@@ -3,7 +3,7 @@ import { captureGitBaseline } from './git-consistency';
 import { canResume } from './enforcement';
 import type { PolicySnapshot, RuntimeFacts } from './enforcement';
 import type { GitBaseline } from './git-consistency';
-import type { LoopRuntimeState, StateStore } from './kernel';
+import type { LoopRuntimeKernel, LoopRuntimeState, StateStore } from './kernel';
 import { RunArtifactStore } from './artifact-store';
 import type { RunArtifactStore as RunArtifactStoreType } from './artifact-store';
 
@@ -19,6 +19,8 @@ export interface RunRuntimeOptions {
   createRunId?: () => string;
   initialFacts?: Partial<RuntimeFacts>;
   artifactStore?: RunArtifactStoreType;
+  /** Kernel is the only authority allowed to perform lifecycle transitions. */
+  kernel?: Pick<LoopRuntimeKernel, 'transition'>;
 }
 
 const defaultFacts = (): RuntimeFacts => ({
@@ -139,9 +141,9 @@ export class RunRuntime {
     if (!acceptancePassed || !verificationPassed || !reviewPassed || !finalApprovalSatisfied) {
       throw new Error('[LOOP_BLOCKED] completion acceptance gates are not satisfied');
     }
-    const next = { ...state, status: 'DONE' };
-    this.stateStoreFactory(runId).write(next);
-    return next;
+    if (!this.options.kernel) throw new Error('[LOOP_BLOCKED] kernel is required for completion');
+    this.options.kernel.transition('DONE');
+    return this.loadRun(runId);
   }
 
   private assertPolicy(state: LoopRuntimeState): void {
