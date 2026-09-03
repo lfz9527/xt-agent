@@ -3,6 +3,7 @@ name: Loop Runtime Tests
 on:
   push:
     branches:
+      - main
       - loop/permission-system
   pull_request:
     paths:
