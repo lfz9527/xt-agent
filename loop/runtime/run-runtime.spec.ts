@@ -90,7 +90,34 @@ describe('RunRuntime', () => {
     expect(resumed.facts.resumeStateValid).toBe(true);
   });
 
-  it('requires every completion acceptance gate before DONE', () => {
+  it('routes completion through the Kernel instead of writing DONE directly', () => {
+    const fixture = storeFixture();
+    const policy = {
+      currentRevision: vi.fn(() => 1),
+      createSnapshot: vi.fn((runId: string) => snapshot(runId)),
+    };
+    const kernel = {
+      transition: vi.fn((to: string) => fixture.store.write({ ...fixture.get()!, status: to })),
+    };
+    const runtime = new RunRuntime(() => fixture.store, policy, { createRunId: () => 'run-1', kernel });
+    runtime.createRun();
+    fixture.store.write({
+      ...fixture.get()!,
+      status: 'READY_FOR_CONFIRMATION',
+      facts: {
+        ...fixture.get()!.facts,
+        acceptancePassed: true,
+        verificationPassed: true,
+        reviewPassed: true,
+        finalApprovalSatisfied: true,
+      },
+    });
+
+    expect(runtime.complete('run-1').status).toBe('DONE');
+    expect(kernel.transition).toHaveBeenCalledWith('DONE');
+  });
+
+  it('blocks completion when the Kernel is not configured', () => {
     const fixture = storeFixture();
     const policy = {
       currentRevision: vi.fn(() => 1),
@@ -110,6 +137,6 @@ describe('RunRuntime', () => {
       },
     });
 
-    expect(runtime.complete('run-1').status).toBe('DONE');
+    expect(() => runtime.complete('run-1')).toThrow('[LOOP_BLOCKED] kernel is required for completion');
   });
 });

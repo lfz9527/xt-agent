@@ -13,9 +13,45 @@ export interface ProjectLoopWorkspaceOptions {
   cwd?: string;
 }
 
-const DEFAULT_PROJECT_CONFIG = `# Project-level Loop configuration.\n# This file belongs to the project and is created automatically on first /loop run.\nversion: 1\ntrust: low\npolicyRevision: 1\n\npermissions:\n  approval:\n    beforeExecution: inherit\n    beforeFinalize: inherit\n  filesystem:\n    read: allow\n    write: allow\n  shell:\n    execute: allow\n    dangerous: confirm\n  git:\n    read: allow\n    commit: confirm\n    push: confirm\n  network:\n    request: confirm\n`;
+const DEFAULT_PROJECT_CONFIG = `# Project-level Loop configuration.
+# This file belongs to the project and is created automatically on first /loop run.
+version: 1
+trust: low
+policyRevision: 1
 
-const DEFAULT_README = `# Loop Project Workspace\n\nThis directory is the project-local workspace for Loop.\n\n## Structure\n\n- \\`config.yaml\\`: project-level Trust, permissions and policy revision.\n- \\`runtime/\\`: Run state, locks and append-only audit history.\n- \\`plans/\\`: generated Plan artifacts.\n- \\`specs/\\`: generated PECS specification artifacts.\n- \\`evidence/\\`: verification Evidence.\n- \\`reviews/\\`: Review artifacts.\n\nLoop creates and restores this workspace automatically. Existing files are never overwritten during initialization.\n`;
+permissions:
+  approval:
+    beforeExecution: inherit
+    beforeFinalize: inherit
+  filesystem:
+    read: allow
+    write: allow
+  shell:
+    execute: allow
+    dangerous: confirm
+  git:
+    read: allow
+    commit: confirm
+    push: confirm
+  network:
+    request: confirm
+`;
+
+const DEFAULT_README = `# Loop Project Workspace
+
+This directory is the project-local workspace for Loop.
+
+## Structure
+
+- config.yaml: project-level Trust, permissions and policy revision.
+- runtime/: Run state, locks and append-only audit history.
+- plans/: generated Plan artifacts.
+- specs/: generated PECS specification artifacts.
+- evidence/: verification Evidence.
+- reviews/: Review artifacts.
+
+Loop creates and restores this workspace automatically. Existing files are never overwritten during initialization.
+`;
 
 const DIRECTORIES = [
   'runtime/runs',

@@ -2,10 +2,15 @@
   "name": "@xt-agent/loop-runtime-tests",
   "private": true,
   "type": "module",
+  "bin": {
+    "loop": "cli/bin.mjs"
+  },
   "scripts": {
+    "loop": "tsx cli/index.ts",
     "test": "vitest run"
   },
   "devDependencies": {
+    "tsx": "^4.20.3",
     "vitest": "^3.2.4"
   }
 }

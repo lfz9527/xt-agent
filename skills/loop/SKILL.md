@@ -168,6 +168,65 @@ P2-12 不增加新的状态机或第二套 Runtime，而是收紧已有边界，
 
 Adapter 只负责入口协议、参数校验和外部调度；Runtime 才是 State、Policy、Permission、Trust、Approval、Evidence、Mutation 和生命周期的唯一权威。
 
+### Agent-facing Contract
+
+`/loop` 在 Codex CLI、Claude CLI 等 Agent 宿主中运行时，Skill 本身不得承担 Loop 生命周期推进。Skill 必须把 Agent 行为限制在 Runtime 暴露的 Agent-facing Adapter 内。
+
+核心不变量：
+
+> Agent may perform work, but Agent may never advance the Run lifecycle.
+
+Agent 可以：
+
+- 读取当前 Run State。
+- 根据当前 Stage 执行任务。
+- 生成 Plan、Spec、Implementation、Verification、Review 等工作结果。
+- 把 Facts / Evidence / StageResult 提交给 Runtime。
+- 请求暂停、恢复或人工审批。
+
+Agent 不可以：
+
+- 直接修改 `.loop/runtime/runs/<run-id>/state.yaml`。
+- 直接修改 Runtime Facts 作为生命周期事实源。
+- 指定任意 `from → to` 状态迁移。
+- 自己把“完成了”“测试通过了”声明为 DONE Evidence。
+- 绕过 `RunService`、`ExecutionRuntime` 或 `LoopRuntimeKernel`。
+
+Agent-facing CLI 的语义入口为：
+
+```text
+loop agent start
+loop agent status <run-id>
+loop agent submit <run-id> <stage-result-json>
+loop agent pause <run-id>
+loop agent approve <run-id> execution approved|rejected
+loop agent approve <run-id> final approved|rejected
+```
+
+这些命令只是 Adapter Contract：
+
+```text
+Codex / Claude
+      ↓
+  /loop Skill
+      ↓
+ Agent CLI Adapter
+      ↓
+ AgentRuntimeService
+      ↓
+ Existing RunRuntime / ExecutionRuntime
+      ↓
+ LoopRuntimeKernel
+      ↓
+ State Machine
+```
+
+`submit` 不接受目标状态。Runtime 根据当前 State、StageRegistry、Facts、Evidence、Policy 和 Completion Gate 决定是否以及如何推进状态；失败时返回 `[LOOP_BLOCKED]`。
+
+`approve` 也不直接写 State。人工审批必须先经过 `HumanApprovalGate`，然后由 Kernel 执行受 Guard 约束的迁移。
+
+如果宿主无法调用 Agent-facing CLI Adapter，`/loop` 不得退化为“凭 Skill 文案自觉遵守状态机”的模式；应直接阻断并报告 Runtime Adapter 未配置。
+
 ## 项目 Loop 工作区
 
 每个项目只需要一个根目录 `.loop/`。`.loop/` 是该项目所有 Loop 配置与运行产物的统一工作区。一个 Project 可以存在多个 Run；Run 不通过项目级互斥锁串行化。

@@ -13,7 +13,6 @@ export type ExecutionStage = 'GOAL_REVIEW' | 'PLAN' | 'IMPLEMENT' | 'VERIFY' | '
 export interface StageResult { facts?: Partial<LoopRuntimeState['facts']>; checkpoint?: string; evidence?: CompletionEvidence[]; }
 export interface StageExecutor { execute(stage: ExecutionStage, state: LoopRuntimeState): Promise<StageResult>; }
 export interface ExecutionRuntimeOptions {
-  /** Absolute `.loop` workspace resolved from the project root. */
   workspace?: string;
   maxFixAttempts?: number;
   checkpointStore?: CheckpointStore;
@@ -79,7 +78,24 @@ export class ExecutionRuntime {
       this.auditTimeline?.stage(runId, state.policyRevision, stage, 'failed');
       throw error;
     }
-    if (result.facts) { this.updateFacts(runId, result.facts); state = this.runs.loadRun(runId); }
+    return this.completeStageInternal(runId, result, inputFingerprint, stage);
+  }
+
+  /** Agent-facing stage completion boundary. The Agent supplies results; Runtime owns persistence, gates and transition. */
+  completeStage(runId: string, result: StageResult): LoopRuntimeState {
+    const state = this.runs.loadRun(runId);
+    const stage = this.stageRegistry.resolve(state.status);
+    if (!stage) throw new Error(`[LOOP_BLOCKED] status ${state.status} is not an executable stage`);
+    const inputFingerprint = checkpointInputFingerprint(runId, stage, state.policyRevision, state.facts as unknown as Record<string, unknown>);
+    return this.completeStageInternal(runId, result, inputFingerprint, stage);
+  }
+
+  private completeStageInternal(runId: string, result: StageResult, inputFingerprint: string, stage: ExecutionStage): LoopRuntimeState {
+    let state = this.runs.loadRun(runId);
+    if (result.facts) {
+      this.updateFacts(runId, result.facts);
+      state = this.runs.loadRun(runId);
+    }
     if (result.evidence) {
       for (const evidence of result.evidence) {
         if (evidence.runId !== runId) throw new Error('[LOOP_BLOCKED] evidence belongs to another run');
@@ -152,5 +168,9 @@ export class ExecutionRuntime {
     return this.runs.loadRun(state.runId);
   }
 
-  private updateFacts(runId: string, facts: Partial<LoopRuntimeState['facts']>): void { const store = this.stateStoreFactory(runId); const state = store.read(); store.write({ ...state, facts: { ...state.facts, ...facts } }); }
+  private updateFacts(runId: string, facts: Partial<LoopRuntimeState['facts']>): void {
+    const store = this.stateStoreFactory(runId);
+    const state = store.read();
+    store.write({ ...state, facts: { ...state.facts, ...facts } });
+  }
 }
