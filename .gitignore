@@ -3,3 +3,9 @@
 skills/use-browser-cdp/scripts/.initialized
 
 loop/node_modules
+
+# 私有 GitLab MCP 的本地依赖、编译产物和凭据文件
+mcp/private-gitlab/node_modules
+mcp/private-gitlab/dist
+mcp/private-gitlab/dist-test
+mcp/private-gitlab/.env
