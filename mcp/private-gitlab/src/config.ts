@@ -1,9 +1,31 @@
+import { config as loadDotEnv } from "dotenv";
+import { existsSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
 export interface GitLabConfig {
   apiUrl: string;
   token: string;
   readOnly: boolean;
   timeoutMs: number;
 }
+
+function loadEnvFile(): void {
+  const currentDir = dirname(fileURLToPath(import.meta.url));
+  const candidates = [
+    process.env.GITLAB_ENV_FILE,
+    join(process.cwd(), ".env"),
+    join(currentDir, "..", ".env"),
+    join(currentDir, "..", "..", ".env"),
+  ].filter((candidate): candidate is string => Boolean(candidate));
+  const envFile = candidates.find((candidate) => existsSync(candidate));
+
+  if (envFile) {
+    loadDotEnv({ path: envFile, override: false, quiet: true });
+  }
+}
+
+loadEnvFile();
 
 function normalizeUrl(raw: string, name: string): string {
   let url: URL;

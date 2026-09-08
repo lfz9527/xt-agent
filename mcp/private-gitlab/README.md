@@ -1,6 +1,6 @@
 # 私有化 GitLab MCP
 
-这是一个通过 GitLab REST API v4 操作私有化 GitLab 的本地 stdio MCP 服务。服务只通过环境变量读取实例地址和 token，不在仓库保存凭据。
+这是一个通过 GitLab REST API v4 操作私有化 GitLab 的本地 stdio MCP 服务。服务从项目根目录的 .env 或进程环境变量读取实例地址和 token，不在仓库保存凭据；进程环境变量优先。
 
 ## 能力
 
@@ -19,9 +19,7 @@ Node.js 20 或更高版本：
 
 ~~~powershell
 Copy-Item .env.example .env
-# 在当前 PowerShell 会话中设置凭据；不要把真实 token 写进仓库文件
-$env:GITLAB_URL = 'https://gitlab.example.local'
-$env:GITLAB_TOKEN = 'replace-with-a-token'
+# 编辑 D:\xt-agent\mcp\private-gitlab\.env，填写 GITLAB_URL 和 GITLAB_TOKEN
 
 npm install
 npm run typecheck
