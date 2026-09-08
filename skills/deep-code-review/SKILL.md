@@ -1,3 +1,8 @@
+---
+name: deep-code-review
+description: 对整个项目进行系统性健康审查，识别长期技术债、架构漂移和治理风险。
+---
+
 # Deep Review
 
 > 默认使用中文。代码、API、错误信息和命令保持原文。

@@ -1,3 +1,8 @@
+---
+name: global-code-review
+description: 从整个项目视角审查代码变更及其架构影响。
+---
+
 # Global Review
 
 > 默认使用中文。代码、API、错误信息和命令保持原文。

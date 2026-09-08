@@ -1,3 +1,8 @@
+---
+name: change-code-review
+description: 审查当前代码变化的正确性、安全性、可测试性及其直接引入的问题。
+---
+
 # Change Code Review
 
 > 默认使用中文。代码、API、错误信息和命令保持原文。
