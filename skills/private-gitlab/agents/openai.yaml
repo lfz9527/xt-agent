@@ -1,7 +1,0 @@
-interface:
-  # 在 Codex 界面中显示的 Skill 名称。
-  display_name: "Private GitLab"
-  # 用于 Skill 列表和调用提示的简短说明。
-  short_description: "Run private GitLab actions through MCP"
-  # 显式调用 Skill 时使用的默认提示。
-  default_prompt: "Use $private-gitlab to execute the requested private GitLab operation through the private_gitlab MCP; run a health check when no operation is specified."
