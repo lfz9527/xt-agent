@@ -1,0 +1,50 @@
+{
+  "skill_name": "deep-code-review",
+  "evals": [
+    {
+      "id": "deep-baseline",
+      "prompt": "对当前仓库做一次项目健康基线，关注模块依赖、重复能力、测试薄弱区和安全边界；请声明扫描边界和排除项。",
+      "expected_behavior": [
+        "先声明范围、预算和排除项",
+        "建立资产、模块、依赖、测试和安全边界地图",
+        "高风险结论提供代码、依赖或工具证据",
+        "输出治理行动项而不是只列问题"
+      ]
+    },
+    {
+      "id": "deep-no-history",
+      "prompt": "仓库没有历史 review 报告，请做一次深度审查并报告技术债趋势。",
+      "expected_behavior": [
+        "明确写无可比基线",
+        "不编造趋势或历史数量",
+        "仍然输出当前基线和后续记录建议"
+      ]
+    },
+    {
+      "id": "deep-bounded",
+      "prompt": "只审查支付子系统和它的直接依赖，排除构建产物、第三方目录和生成代码。",
+      "expected_behavior": [
+        "遵守子系统边界和排除项",
+        "不宣称完成整个仓库审查",
+        "对未覆盖区域明确说明限制"
+      ]
+    }
+  ],
+  "routing_evals": [
+    {
+      "id": "route-deep",
+      "prompt": "做一次发布前的全项目架构和技术债审查",
+      "should_trigger": true
+    },
+    {
+      "id": "route-change",
+      "prompt": "审查这次提交是否有回归",
+      "should_trigger": false
+    },
+    {
+      "id": "route-global",
+      "prompt": "检查新增 Service 是否和已有 Service 重复",
+      "should_trigger": false
+    }
+  ]
+}

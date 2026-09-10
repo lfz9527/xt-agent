@@ -1,0 +1,140 @@
+{
+  "skill_name": "mysql-table-designer",
+  "runner": {
+    "working_directory": "skill_root",
+    "output_file": "output.sql",
+    "validator": "scripts/validate-ddl.mjs"
+  },
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "使用 MySQL 8.0 设计 products 商品表。分类表 categories 已存在，主键是 INT UNSIGNED。商品需要名称、精确到分且最大不超过十亿元的价格、非负库存、状态和创建时间。最常见查询按 category_id、status 等值筛选，再按 created_at 排序。分类关系使用数据库外键。",
+      "expected_output": "生成 products 表；外键类型与 categories.id 一致；价格为合适精度的 DECIMAL；价格和库存有非负 CHECK；联合索引以前两项 category_id、status 开头；无无意义空字符串默认值。",
+      "files": [],
+      "assertions": [
+        {
+          "id": "1.1",
+          "description": "验证商品字段、类型、非负约束和查询驱动的联合索引",
+          "type": "script",
+          "script": "node scripts/validate-ddl.mjs output.sql product"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "为 MySQL 8.0 订单模块设计 orders 和 order_items。users 与 products 表已存在且主键均为 BIGINT UNSIGNED。orders 记录下单用户、总金额、状态；order_items 记录订单、商品、正数数量和成交单价。关系必须由数据库外键保证，删除用户或商品时不能级联删除历史订单。",
+      "expected_output": "生成 orders 与 order_items；关联列类型一致并包含真实 FOREIGN KEY；金额使用 DECIMAL；数量有有效范围约束；删除策略保护历史记录。",
+      "files": [],
+      "assertions": [
+        {
+          "id": "2.1",
+          "description": "验证订单表、金额、数量和数据库外键",
+          "type": "script",
+          "script": "node scripts/validate-ddl.mjs output.sql order-system"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "设计 MySQL 8.0 学生选课系统，包括 students、courses、student_courses。记录学号、姓名、课程名、学分和成绩。同一学生不能重复选择同一课程，当前课程名和学分不要冗余到选课关系中，使用数据库外键。",
+      "expected_output": "生成三张表；student_courses 通过联合主键或唯一约束防重，只保留关系属性成绩，不包含 course_name 或 credit，并完整建立学生和课程外键。",
+      "files": [],
+      "assertions": [
+        {
+          "id": "3.1",
+          "description": "验证实体拆分、关联唯一性、字段归属和外键",
+          "type": "script",
+          "script": "node scripts/validate-ddl.mjs output.sql course-system"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "设计 MySQL 8.0 users 表。用户名和密码为必填，邮箱、手机号均为可选但填写后必须唯一。密码只允许保存盐化哈希。不要用空字符串代表未填写。",
+      "expected_output": "使用 password_hash 且无默认值；email 和 mobile 允许 NULL、有唯一约束且无空字符串默认值；不输出含糊的 password 字段。",
+      "files": [],
+      "assertions": [
+        {
+          "id": "4.1",
+          "description": "验证可选唯一字段的 NULL 语义和密码哈希存储",
+          "type": "script",
+          "script": "node scripts/validate-ddl.mjs output.sql optional-unique-user"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "prompt": "已有 orders 和 products 表，请设计 MySQL 8.0 的 order_items。除 order_id、product_id、数量外，必须保存下单时的商品名称和成交单价，即使商品后来改名或调价，历史订单也不能变化。请说明这个冗余的语义。",
+      "expected_output": "保留商品名称与成交单价快照，成交单价使用 DECIMAL，并在字段注释或设计说明中明确它们是下单时快照而非当前商品属性。",
+      "files": [],
+      "assertions": [
+        {
+          "id": "5.1",
+          "description": "验证历史快照没有被机械套用 3NF 删除",
+          "type": "script",
+          "script": "node scripts/validate-ddl.mjs output.sql order-snapshot"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "prompt": "设计兼容 MySQL 5.7 的 user_profiles 表，用户主键为 INT UNSIGNED，需要 user_id、昵称和 JSON 类型的偏好设置。使用 utf8mb4，不能依赖 MySQL 5.7 不执行的约束，也不能使用 8.0 才有的排序规则。",
+      "expected_output": "生成 MySQL 5.7 可执行 DDL；preferences 使用 JSON 且没有不兼容默认值；不使用 utf8mb4_0900_* 或依赖 CHECK。",
+      "files": [],
+      "assertions": [
+        {
+          "id": "6.1",
+          "description": "验证 MySQL 5.7 的 JSON、排序规则和约束兼容性",
+          "type": "script",
+          "script": "node scripts/validate-ddl.mjs output.sql mysql57"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "prompt": "设计 MySQL 8.0 users 表，使用 deleted_at 软删除。email 在活动用户中必须唯一，用户删除后相同 email 可以注册，且同一 email 可以经历多次删除和重新注册。不能只依赖应用先查再写。",
+      "expected_output": "使用基于 email 和 deleted_at 的活动值生成列并建立唯一索引，或给出等价的数据库级并发安全结构；不能错误使用 UNIQUE(email, deleted_at)。",
+      "files": [],
+      "assertions": [
+        {
+          "id": "7.1",
+          "description": "验证软删除下活动邮箱唯一性的数据库级实现",
+          "type": "script",
+          "script": "node scripts/validate-ddl.mjs output.sql soft-delete-unique"
+        }
+      ]
+    }
+  ],
+  "routing_evals": [
+    {
+      "id": "routing-1",
+      "prompt": "帮我设计一个 MySQL 用户表并给出 CREATE TABLE",
+      "should_trigger": true
+    },
+    {
+      "id": "routing-2",
+      "prompt": "根据这个订单业务设计 MySQL 的表关系和 DDL",
+      "should_trigger": true
+    },
+    {
+      "id": "routing-3",
+      "prompt": "解释一下这段 CREATE TABLE 每个字段是什么意思",
+      "should_trigger": false
+    },
+    {
+      "id": "routing-4",
+      "prompt": "审查现有 users 表的索引有没有问题",
+      "should_trigger": false
+    },
+    {
+      "id": "routing-5",
+      "prompt": "为 PostgreSQL 设计一套商品库存表",
+      "should_trigger": false
+    },
+    {
+      "id": "routing-6",
+      "prompt": "给 users 表新增 last_login_at，写一个 ALTER TABLE migration",
+      "should_trigger": false
+    }
+  ]
+}

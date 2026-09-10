@@ -1,0 +1,50 @@
+{
+  "skill_name": "change-code-review",
+  "evals": [
+    {
+      "id": "change-local-diff",
+      "prompt": "审查当前工作区对用户鉴权接口的修改，重点判断是否引入未授权访问、异常吞掉或测试遗漏。不要做全项目架构扫描。",
+      "expected_behavior": [
+        "确认工作区和暂存区范围，并记录未跟踪相关文件",
+        "读取变更文件及直接调用链",
+        "优先检查鉴权边界、异常传播和回归测试",
+        "只输出有证据的局部 Finding"
+      ]
+    },
+    {
+      "id": "change-explicit-range",
+      "prompt": "只审查 HEAD~2..HEAD 的变更，检查 API 兼容性和数据一致性，不要扩大到其他提交。",
+      "expected_behavior": [
+        "严格使用用户指定的 commit range",
+        "不把工作区其他变化混入审查范围",
+        "验证命令来自项目实际配置"
+      ]
+    },
+    {
+      "id": "change-escalation",
+      "prompt": "审查新增的日期格式化工具；如果发现仓库里已有相似工具，请指出需要追加哪一种审查，而不是直接扫描所有模块。",
+      "expected_behavior": [
+        "完成局部变更审查",
+        "发现重复时建议追加 global-code-review",
+        "不把全局重复结论伪装成 Change Finding"
+      ]
+    }
+  ],
+  "routing_evals": [
+    {
+      "id": "route-change",
+      "prompt": "帮我审查这个 commit 是否引入了 bug",
+      "should_trigger": true
+    },
+    {
+      "id": "route-explain",
+      "prompt": "解释这段函数的实现逻辑",
+      "should_trigger": false
+    },
+    {
+      "id": "route-deep",
+      "prompt": "做一次全项目技术债和架构健康审查",
+      "should_trigger": false
+    }
+  ]
+}

@@ -1,0 +1,50 @@
+{
+  "skill_name": "global-code-review",
+  "evals": [
+    {
+      "id": "global-duplicate-service",
+      "prompt": "审查这次新增订单查询 Service 进入项目后，是否与已有 Service、DTO、API 或工具能力重复，并检查模块边界。",
+      "expected_behavior": [
+        "以变更资产为起点搜索已有实现",
+        "重复结论至少提供两个位置和语义证据",
+        "检查导入方向、跨层调用和 API/DTO 分叉",
+        "不重复输出已经确认的局部 bug"
+      ]
+    },
+    {
+      "id": "global-narrow-scope",
+      "prompt": "对这个 MR 做全局影响审查，但只围绕修改的支付模块、依赖关系和公共类型展开。",
+      "expected_behavior": [
+        "保留用户指定的范围限制",
+        "优先检查支付模块关联资产",
+        "记录排除项和未覆盖区域",
+        "不声称完成无边界全项目扫描"
+      ]
+    },
+    {
+      "id": "global-no-change",
+      "prompt": "没有指定提交或变更，请给我一份项目长期健康报告。",
+      "expected_behavior": [
+        "转交 deep-code-review",
+        "不自行创建 Global Review 目标"
+      ]
+    }
+  ],
+  "routing_evals": [
+    {
+      "id": "route-global",
+      "prompt": "检查这个 MR 是否和项目已有能力重复，是否造成架构退化",
+      "should_trigger": true
+    },
+    {
+      "id": "route-change",
+      "prompt": "只看这次 diff 有没有明显 bug",
+      "should_trigger": false
+    },
+    {
+      "id": "route-deep",
+      "prompt": "建立整个仓库的技术债基线",
+      "should_trigger": false
+    }
+  ]
+}
