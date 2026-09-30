@@ -1,0 +1,20 @@
+{
+  "name": "leju-marketplace",
+  "interface": {
+    "displayName": "乐聚本地插件市场"
+  },
+  "plugins": [
+    {
+      "name": "leju-skills",
+      "source": {
+        "source": "local",
+        "path": "./plugins/leju-skills"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "name": "leju-skills",
+  "version": "0.1.0",
+  "description": "xt-agent 项目的 Codex Skill 集合。",
+  "author": {
+    "name": "xt-agent"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "乐聚 Skills",
+    "shortDescription": "xt-agent 项目的 Skill 集合",
+    "longDescription": "提供 xt-agent 项目中维护的全部 Codex Skill。",
+    "developerName": "xt-agent",
+    "category": "Productivity",
+    "capabilities": [
+      "Read"
+    ],
+    "defaultPrompt": [
+      "使用乐聚 Skills 处理当前任务。"
+    ]
+  }
+}
